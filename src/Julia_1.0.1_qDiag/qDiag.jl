@@ -2,7 +2,8 @@ module qDiag
 
 using LinearAlgebra
 
-
+h_bar = 1.0545718001391127*10^-34
+h_bar = 1
 """
 Diagonalize the hamiltonian and evolve the wave function.
 """
@@ -18,7 +19,7 @@ function diag_dt(H, wavefun, dt)
   H_eig_diag = Diagonal(eig.values)
   v = eig.vectors
 
-  new_wavefun = v * exp(-im*dt*H_eig_diag) * v' * wavefun
+  new_wavefun = v * exp(-im*dt*H_eig_diag/h_bar) * v' * wavefun
   return new_wavefun/norm(new_wavefun)
 end
 
@@ -49,10 +50,24 @@ function diag_evolution(H_init, H_fin, wavefun, t, dt)  #test with linear progre
   for time_step = 0:dt:t-dt
     s = get_s(time_step/t)
     H = get_h(H_init, H_fin, s)
+    #wavefun = diag_dt(H, wavefun, dt)
+    display(time_step)
+    display(wavefun)
+    #display(H)
     wavefun = diag_dt(H, wavefun, dt)
-    #display(time_step)
+    display("*******************************")
   end
+  display("*******************************")
+  #display(time_step)
+  display(wavefun)
   return wavefun
 end
 
 end
+
+"""
+H_init = [1 0 0 0;0 -1 0 0; 0 0 -1 0; 0 0 0 1]
+H_fin = [0 0 0 1; 0 0 1 0; 0 1 0 0; 1 0 0 0]
+psi1 = [1;0;0;0]
+diag_evolution(H_init, H_fin, psi1, 1, 1/19)
+"""
