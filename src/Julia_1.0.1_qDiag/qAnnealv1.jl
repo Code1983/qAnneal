@@ -41,8 +41,8 @@ function init(nQ, initWaveFun=missing)
 
     #create the initial h and J matrix based on number of qubits
     global hxStart = [1 0 0]
-    global hyStart = [0 0 0]
-    global hzStart = [0 0 0]
+    global hyStart = [1 0 0]
+    global hzStart = [1 1 0]
     #global hxStart = zeros(1,n)
 
     #read the J and h files and create corresponding matrices
@@ -68,7 +68,7 @@ This funtion and doubleSpinOp updates the wavefunction.
 """
 function singleSpinOp(delta, dt)
   waveFunInterim = zeros(Complex{Float64}, nStates)
-  #global Hop = zeros(Complex{Float64}, nStates, nStates)
+  global Hop = zeros(Complex{Float64}, nStates, nStates)
   for k = 0:n-1
     i1=2^k
     hxi = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
@@ -77,25 +77,32 @@ function singleSpinOp(delta, dt)
     #based on equation 68
     hi = sqrt(hxi*hxi + hyi*hyi + hzi*hzi)
     if hi !=0
-      sinTerm = sin(dt*hi/2)
-      cosTerm = cos(dt*hi/2)
+      sinTerm = sin(3*dt*hi/2)
+      cosTerm = cos(3*dt*hi/2)
       spinOp11 = cosTerm + sinTerm*hzi*im/hi
       spinOp12 = (hxi*im+hyi)*sinTerm/hi
       spinOp21 = (hxi*im-hyi)*sinTerm/hi
       spinOp22 = cosTerm - sinTerm*hzi*im/hi
-      for l=0:2:nStates-1
+    else
+      spinOp11 = 1;
+      spinOp12 = 0;
+      spinOp21 = 0;
+      spinOp22 = 1;
+    end
+    for l=0:2:nStates-1
         i2= l & i1;
         i::Int = l - i2 + i2/i1 + 1;  #The +1 is because indexing in julia is 1-based
         j::Int = i + i1;
         #print("====",k," ",i," ",j," ",spinOp11," ",spinOp22, "\n")
 
-        waveFunInterim[i] += spinOp11*waveFun[i] + spinOp21*waveFun[j]
-        waveFunInterim[j] += spinOp12*waveFun[i] + spinOp22*waveFun[j]
-        #Hop[i,i] += spinOp11
-        #Hop[i,j] += spinOp12
-        #Hop[j,i] += spinOp21
-        #Hop[j,j] += spinOp22
-      end
+        waveFunInterim[i] += spinOp11*waveFun[i] + spinOp12*waveFun[j]
+        waveFunInterim[j] += spinOp21*waveFun[i] + spinOp22*waveFun[j]
+        Hop[i,i] += spinOp11
+        Hop[i,j] += spinOp12
+        Hop[j,i] += spinOp21
+        Hop[j,j] += spinOp22
+        #print("===",i,":===",waveFunInterim[i],"===",j,":===",waveFunInterim[j],"\n")
+        #print(spinOp11,",",spinOp12,",",waveFun[i],",",spinOp21,",",spinOp22,",",waveFun[j],"\n")
     end
   end
   #display(waveFun)
@@ -111,6 +118,7 @@ function singleSpinOp(delta, dt)
   end
 
   normWaveFun()
+  print("\n\n")
 
 
 end
@@ -362,6 +370,10 @@ function anneal(nQ, t=1.0, dt=0.1, initWaveFun=missing)
         s = get_s(time_step/t)
         #print(s," ",dt, "\n ")
         singleSpinOp(s, dt)
+        #singleSpinOp(s, dt)
+        #singleSpinOp(s, dt)
+        #singleSpinOp(s, dt)
+        #singleSpinOp(s, dt)
         doubleSpinOp(s, dt)
         #doubleSpinOp(s, dt)
         #doubleSpinOp(s, dt)
@@ -388,5 +400,5 @@ H_init=qAnneal.Hamiltonian(0)
 H_fin=qAnneal.Hamiltonian(1)
 psi0=ones(8)
 psi0 /= norm(psi0)
-qDiag.diag_evolution(H_init, H_fin, psi0, 1, 1/19)
+qDiag.diag_evolution(H_init, H_fin, psi0, 1, 0.0005)
 """
