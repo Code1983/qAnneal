@@ -28,7 +28,7 @@ function init(nQ, initWaveFun=missing)
     #calculate the number of states and create the wave function
     global nStates = 2^n     #total number of states
     global waveFun = zeros(Complex{Float64}, nStates)  # wave function
-    global waveFun_init = zeros(Complex{Float64}, nStates)  # wave function
+    #global waveFun_init = zeros(Complex{Float64}, nStates)  # wave function
     if initWaveFun === missing
       #fill!(waveFun,nStates^(-0.5))    # initializing the wave function to all x
       fill!(waveFun,1)
@@ -37,7 +37,7 @@ function init(nQ, initWaveFun=missing)
     end
     #waveFun =  waveFun/norm(waveFun)
     normWaveFun()
-    waveFun_init = waveFun
+    global waveFun_init = copy(waveFun)
 
     #global waveFunInterim = zeros(Complex{Float64}, nStates) #space to hold interim wave function
 
@@ -204,7 +204,7 @@ function normWaveFun()
 end
 
 """
-    energySys(n)
+    energySys(n, wavefunction)
 calculates the global energy of the system
 # Arguments
 * `n::Integer`: number of cubits of system.
@@ -217,10 +217,13 @@ Following is the sequence of steps
         1b. calculate (Σ Jij σi σj)|Ψ>
  2. Finally calculate energy by mutiplying <Ψ| with H|Ψ> from previous step
 """
-function energySys(delta)
+function energySys(delta, wavefun = missing)
 
     # variable to hold H|Ψ>
     waveFunOp = zeros(Complex{Float64}, nStates)
+    if wavefun === missing
+      wavefun = waveFun
+    end
     # Calculate (Σ hi σi)|Ψ>
     for k = 0:n-1
       i1 = 2^k
@@ -231,8 +234,8 @@ function energySys(delta)
         i2= l & i1;
         i::Int = l - i2 +i2/i1 +1;   # The +1 is because indexing in julia is 1-based
         j::Int = i+i1;
-        waveFunOp[i] += (hxi - hyi*im)*waveFun[j] + hzi*waveFun[i]
-        waveFunOp[j] += (hxi + hyi*im)*waveFun[i] - hzi*waveFun[j]
+        waveFunOp[i] += (hxi - hyi*im)*wavefun[j] + hzi*wavefun[i]
+        waveFunOp[j] += (hxi + hyi*im)*wavefun[i] - hzi*wavefun[j]
       end
     end
 
@@ -253,10 +256,10 @@ function energySys(delta)
             n2=n0+njj;
             n3=n1+njj;
             # current the code is only of Jz*Jz only
-            waveFunOp[n0] += jzij*waveFun[n0] + jxij*waveFun[n3] - jyij*waveFun[n3]
-            waveFunOp[n1] += -jzij*waveFun[n1] + jxij*waveFun[n2] + jyij*waveFun[n2]
-            waveFunOp[n2] += -jzij*waveFun[n2] + jxij*waveFun[n1] + jyij*waveFun[n1]
-            waveFunOp[n3] += jzij*waveFun[n3] + jxij*waveFun[n0] - jyij*waveFun[n0]
+            waveFunOp[n0] += jzij*wavefun[n0] + jxij*wavefun[n3] - jyij*wavefun[n3]
+            waveFunOp[n1] += -jzij*wavefun[n1] + jxij*wavefun[n2] + jyij*wavefun[n2]
+            waveFunOp[n2] += -jzij*wavefun[n2] + jxij*wavefun[n1] + jyij*wavefun[n1]
+            waveFunOp[n3] += jzij*wavefun[n3] + jxij*wavefun[n0] - jyij*wavefun[n0]
         end
       end
     end
@@ -264,7 +267,28 @@ function energySys(delta)
 
     #find the system energy after the hamiltonina has been operated on
     #wavefunction. i.e find <Ψ|H|Ψ> given H|Ψ> from above.
-    energy = sum(conj(waveFun).*waveFunOp)
+    energy = -sum(conj(wavefun).*waveFunOp)
+    return energy
+end
+
+function energyByMatrix(delta=1, H=missing, wavefun=missing)
+  if H === missing && wavefun == missing
+    energy = conj(waveFun)*Hamiltonian(delta)*waveFun
+  else
+    energy = conj(wavefun)*H*waveFun
+  end
+  return energy
+end
+
+
+"""
+Returns state vector from Bloch Sphere notation.
+"""
+function blochSphere(theta , phi )
+  cosTerm = cos(theta/2)
+  sinTerm = exp(phi*im)*sin(theta/2)
+  #print( "(",cosTerm , ")|0> + (" , sinTerm ,")|1>", "\n")
+  return [cosTerm ; sinTerm]
 end
 
 
@@ -466,11 +490,14 @@ end
 """
 evolve wavefuntion by changing H from initial to final configuration.
 """
-function diag_evolve(t, dt)  #test with linear progress of time.
+#test with linear progress of time.
+function diag_evolve(nQ, t=1.0, dt=0.1, initWaveFun=missing)
+
+  init(nQ, initWaveFun)
   steps = t/dt
   H_init=Hamiltonian(0)
   H_fin=Hamiltonian(1)
-  wavefun=waveFun_init
+  #wavefun=copy(waveFun_init)
   for time_step = 0:dt:t-dt
     s = get_s(time_step/t)
     H = get_h(H_init, H_fin, s)
@@ -478,13 +505,110 @@ function diag_evolve(t, dt)  #test with linear progress of time.
     #display(time_step)
     #display(wavefun)
     #display(H)
-    wavefun = diag_dt(H, wavefun, dt)
+    global waveFun = diag_dt(H, waveFun, dt)
     #display("*******************************")
   end
   #display("*******************************")
   #display(time_step)
   #display(wavefun)
-  return wavefun
+  return waveFun
+end
+
+"""
+convert a decimal number to a binary string.
+"""
+function decToBin(x::Int)
+
+  if x%2 == 0
+    bin = "0"
+  else
+    bin = "1"
+  end
+
+  x = floor(Int,x/2)
+  while x > 0
+    if x%2 == 0
+      bin = "0"*bin
+    else
+      bin = "1"*bin
+    end
+    x = floor(Int,x/2)
+  end
+  return bin
+
+end
+
+"""
+Reverse the order of binary bits from least significant bit representing firt
+bit to most significant bit representing first bit.
+
+for example, in a 3 bit series convert from
+000 001 010 011 100 101 110 111
+to
+000 100 010 110 001 101 011 111
+Then convert the binary number back to decimal
+"""
+function reverseBinDec(num, n)
+
+  bin = decToBin(num)
+  bin = lpad(bin,n,'0')
+  i = 0
+  reverseNum = 0
+  for c in bin
+    if c == '1'
+      reverseNum += 2^i
+    end
+    i = i+1
+  end
+  return reverseNum
+
+end
+
+"""
+convert wavefunction representation from least signifcant qubit to most
+significant qubit. This code outputs results where least significant bit is
+first qubit.
+"""
+function convertWavefunIndex(w,n)
+  wNew = copy(w)
+  for i = 0:2^n-1
+    j = reverseBinDec(i, n)
+    wNew[j+1]=w[i+1]
+  end
+  return wNew
+end
+
+function convertHamiltonianIndex(H,n)
+  Hnew = copy(H)
+  for i = 0:2^n-1
+    for j = 0:2^n-1
+      k = reverseBinDec(i, n)
+      l = reverseBinDec(j, n)
+      #print(i,' ',j,' ',k,' ',l,"\n")
+      Hnew[k+1, l+1]=H[i+1, j+1]
+    end
+  end
+  return Hnew
+end
+
+"""
+wavefunction from a given state of qubit.
+The least significant bit is qubit 1.
+
+Use convertWavefunIndex() if you are following the other convention of most
+significant bit as first qubit.
+"""
+function qubitsToWavefun(qState)
+  n = length(qState)
+  index = 0
+  for i=1:n
+    index += qState[i]*2^(n-i)
+  end
+  waveFun = zeros(Complex{Float64}, 2^n)
+  waveFun[index+1] = 1
+  H = Hamiltonian(1)
+  print("Energy of these qubit = ", H[index+1,index+1], "\n")
+  return waveFun
 end
 
 """
