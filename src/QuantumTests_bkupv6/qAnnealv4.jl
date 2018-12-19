@@ -6,11 +6,18 @@ module qAnneal
 
 using DelimitedFiles
 using LinearAlgebra
+using Distributed
+@everywhere using SharedArrays
+
+print("Added shared arrays. Number of procs = ",nprocs(),"\n")
 
 #create the initial h and J matrix based on number of qubits
-const hxStart = convert(Array{Float32,2},readdlm("./hx_init.txt"))
-const hyStart = convert(Array{Float32,2},readdlm("./hy_init.txt"))
-const hzStart = convert(Array{Float32,2},readdlm("./hz_init.txt"))
+const jzStart = readdlm("./Jz_init.txt")
+const jxStart = readdlm("./Jx_init.txt")
+const jyStart = readdlm("./Jy_init.txt")
+const hxStart = readdlm("./hx_init.txt")
+const hyStart = readdlm("./hy_init.txt")
+const hzStart = readdlm("./hz_init.txt")
 #read the J and h files and create corresponding matrices
 #This corresponds to the final influences to the system.const jz = readdlm("./Jz.txt")
 const jz = readdlm("./Jz.txt")
@@ -53,15 +60,15 @@ This funtion and doubleSpinOp updates the wavefunction.
 * `delta`: Time since initial configuration.
 * `dt`: duration of time steps.
 """
-function singleSpinOp(n, nStates, delta, dt, waveFun)
-  waveFunInterim = zeros(Complex{Float32}, nStates)
+function singleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
+  #waveFunInterim = zeros(Complex{Float32}, nStates)
   for k = 0:n-1
     i1=2^k
-    hxi = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
-    hyi = (1-delta)*hyStart[k+1] + delta*hy[k+1]
-    hzi = (1-delta)*hzStart[k+1] + delta*hz[k+1]
+    hxi::Float32 = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
+    hyi::Float32 = (1-delta)*hyStart[k+1] + delta*hy[k+1]
+    hzi::Float32 = (1-delta)*hzStart[k+1] + delta*hz[k+1]
     #based on equation 68
-    hi = sqrt(hxi*hxi + hyi*hyi + hzi*hzi)
+    hi::Float32 = sqrt(hxi*hxi + hyi*hyi + hzi*hzi)
     if hi !=0
       sinTerm = sin(n*dt*hi/2)
       cosTerm = cos(n*dt*hi/2)
@@ -75,7 +82,7 @@ function singleSpinOp(n, nStates, delta, dt, waveFun)
       spinOp21 = 0;
       spinOp22 = 1;
     end
-    Threads.@threads for l=0:2:nStates-1
+    @sync @distributed for l=0:2:nStates-1
         i2= l & i1;
         i::Int = l - i2 + i2/i1 + 1;  #The +1 is because indexing in julia is 1-based
         j::Int = i + i1;
@@ -120,15 +127,15 @@ This funtion and singleSpinOp updates the wavefunction.
 * `delta`: Time since initial configuration step.
 * `dt`: duration of time steps.
 """
-function doubleSpinOp(n, nStates, delta, dt, waveFun)
-  waveFunInterim = zeros(Complex{Float32}, nStates)
+function doubleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
+  #waveFunInterim = zeros(Complex{Float32}, nStates)
     for k::Int = 0:n-1
       for l::Int = k+1:n-1
         nii::Int=2^k
         njj::Int=2^l
-        jxij=delta*jx[k+1,l+1]
-        jyij=delta*jy[k+1,l+1]
-        jzij=delta*jz[k+1,l+1]
+        jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
+        jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
+        jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
 
         # equation 70
         a = jzij                #somehow /4 is not coded in reference program
@@ -148,7 +155,7 @@ function doubleSpinOp(n, nStates, delta, dt, waveFun)
 
         #print(dsOp11,",",dsOp14,",",dsOp22,",",dsOp23,"\n")
 
-        Threads.@threads for m::Int = 0:4:nStates-1
+        @sync @distributed for m::Int = 0:4:nStates-1
             n3::Int = m & njj;
             n2::Int = m-n3+(n3+n3)/njj;
             n1::Int = n2 & nii;
@@ -371,6 +378,7 @@ function anneal(nQ::Int, t=1.0, dt=0.1, initWaveFun=missing)
     #initialize the system
     nStates::Int = 2^nQ     #total number of states
     waveFun = init(nStates, initWaveFun)
+    waveFunInterim = SharedArray{Complex{Float32},1}(nStates)
 
     for time_step = 0:dt:t-dt
         #delta = i/nSteps
@@ -378,15 +386,24 @@ function anneal(nQ::Int, t=1.0, dt=0.1, initWaveFun=missing)
         #display(waveFun)
         s = get_s(time_step/t)
         #print(s," ",dt, "\n ")
-        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun)
+        @sync @distributed for i::Int = 1:nStates
+         z[i] = 0.0+0.0im
+        end
+        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
         #singleSpinOp(s, dt)
         #singleSpinOp(s, dt)
         #singleSpinOp(s, dt)
         #singleSpinOp(s, dt)
-        waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun)
+        @sync @distributed for i::Int = 1:nStates
+         z[i] = 0.0+0.0im
+        end
+        waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
         #doubleSpinOp(s, dt)
         #doubleSpinOp(s, dt)
-        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun)
+        @sync @distributed for i::Int = 1:nStates
+         z[i] = 0.0+0.0im
+        end
+        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
         #display("*******************************")
         #energy[i+1]=energySys(delta)
     end

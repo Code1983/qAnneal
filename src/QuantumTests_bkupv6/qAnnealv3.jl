@@ -8,9 +8,12 @@ using DelimitedFiles
 using LinearAlgebra
 
 #create the initial h and J matrix based on number of qubits
-const hxStart = convert(Array{Float32,2},readdlm("./hx_init.txt"))
-const hyStart = convert(Array{Float32,2},readdlm("./hy_init.txt"))
-const hzStart = convert(Array{Float32,2},readdlm("./hz_init.txt"))
+const jzStart = readdlm("./Jz_init.txt")
+const jxStart = readdlm("./Jx_init.txt")
+const jyStart = readdlm("./Jy_init.txt")
+const hxStart = readdlm("./hx_init.txt")
+const hyStart = readdlm("./hy_init.txt")
+const hzStart = readdlm("./hz_init.txt")
 #read the J and h files and create corresponding matrices
 #This corresponds to the final influences to the system.const jz = readdlm("./Jz.txt")
 const jz = readdlm("./Jz.txt")
@@ -53,15 +56,15 @@ This funtion and doubleSpinOp updates the wavefunction.
 * `delta`: Time since initial configuration.
 * `dt`: duration of time steps.
 """
-function singleSpinOp(n, nStates, delta, dt, waveFun)
-  waveFunInterim = zeros(Complex{Float32}, nStates)
+function singleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
+  #waveFunInterim = zeros(Complex{Float32}, nStates)
   for k = 0:n-1
     i1=2^k
-    hxi = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
-    hyi = (1-delta)*hyStart[k+1] + delta*hy[k+1]
-    hzi = (1-delta)*hzStart[k+1] + delta*hz[k+1]
+    hxi::Float32 = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
+    hyi::Float32 = (1-delta)*hyStart[k+1] + delta*hy[k+1]
+    hzi::Float32 = (1-delta)*hzStart[k+1] + delta*hz[k+1]
     #based on equation 68
-    hi = sqrt(hxi*hxi + hyi*hyi + hzi*hzi)
+    hi::Float32 = sqrt(hxi*hxi + hyi*hyi + hzi*hzi)
     if hi !=0
       sinTerm = sin(n*dt*hi/2)
       cosTerm = cos(n*dt*hi/2)
@@ -120,15 +123,15 @@ This funtion and singleSpinOp updates the wavefunction.
 * `delta`: Time since initial configuration step.
 * `dt`: duration of time steps.
 """
-function doubleSpinOp(n, nStates, delta, dt, waveFun)
-  waveFunInterim = zeros(Complex{Float32}, nStates)
+function doubleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
+  #waveFunInterim = zeros(Complex{Float32}, nStates)
     for k::Int = 0:n-1
       for l::Int = k+1:n-1
         nii::Int=2^k
         njj::Int=2^l
-        jxij=delta*jx[k+1,l+1]
-        jyij=delta*jy[k+1,l+1]
-        jzij=delta*jz[k+1,l+1]
+        jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
+        jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
+        jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
 
         # equation 70
         a = jzij                #somehow /4 is not coded in reference program
@@ -371,6 +374,7 @@ function anneal(nQ::Int, t=1.0, dt=0.1, initWaveFun=missing)
     #initialize the system
     nStates::Int = 2^nQ     #total number of states
     waveFun = init(nStates, initWaveFun)
+    waveFunInterim = zeros(Complex{Float32}, nStates)
 
     for time_step = 0:dt:t-dt
         #delta = i/nSteps
@@ -378,15 +382,18 @@ function anneal(nQ::Int, t=1.0, dt=0.1, initWaveFun=missing)
         #display(waveFun)
         s = get_s(time_step/t)
         #print(s," ",dt, "\n ")
-        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun)
+        fill!(waveFunInterim,0.0+0.0im)
+        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
         #singleSpinOp(s, dt)
         #singleSpinOp(s, dt)
         #singleSpinOp(s, dt)
         #singleSpinOp(s, dt)
-        waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun)
+        fill!(waveFunInterim,0.0+0.0im)
+        waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
         #doubleSpinOp(s, dt)
         #doubleSpinOp(s, dt)
-        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun)
+        fill!(waveFunInterim,0.0+0.0im)
+        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
         #display("*******************************")
         #energy[i+1]=energySys(delta)
     end

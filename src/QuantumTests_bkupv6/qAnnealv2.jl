@@ -7,18 +7,8 @@ module qAnneal
 using DelimitedFiles
 using LinearAlgebra
 
-#create the initial h and J matrix based on number of qubits
-const hxStart = convert(Array{Float32,2},readdlm("./hx_init.txt"))
-const hyStart = convert(Array{Float32,2},readdlm("./hy_init.txt"))
-const hzStart = convert(Array{Float32,2},readdlm("./hz_init.txt"))
-#read the J and h files and create corresponding matrices
-#This corresponds to the final influences to the system.const jz = readdlm("./Jz.txt")
-const jz = readdlm("./Jz.txt")
-const jx = readdlm("./Jx.txt")
-const jy = readdlm("./Jy.txt")
-const hz = readdlm("./hz.txt")
-const hx = readdlm("./hx.txt")
-const hy = readdlm("./hy.txt")
+
+
 
 
 """
@@ -31,18 +21,43 @@ Initializes the spin system
 * creates the initial h-matrix which aligns cubits to x-direction
 * creates global variables for use in this package
 """
-function init(nStates::Int, initWaveFun=missing)
+function init(nQ, initWaveFun=missing)
+    #declare all the variables and assign to global
+    global n = nQ          #number of qubits of spinSystem
 
-  global waveFun = zeros(Complex{Float32}, nStates)  # wave function
-  if initWaveFun === missing
-    #fill!(waveFun,nStates^(-0.5))    # initializing the wave function to all x
-    fill!(waveFun,1)
-  else
-    waveFun = convert(Array{Complex{Float32},1},initWaveFun)
-  end
-  waveFun = normWaveFun(waveFun)
-  println("Initialization done...")
-  return waveFun
+    #calculate the number of states and create the wave function
+    global nStates = 2^n     #total number of states
+    global waveFun = zeros(Complex{Float64}, nStates)  # wave function
+    #global waveFun_init = zeros(Complex{Float64}, nStates)  # wave function
+    if initWaveFun === missing
+      #fill!(waveFun,nStates^(-0.5))    # initializing the wave function to all x
+      fill!(waveFun,1)
+    else
+      waveFun = convert(Array{Complex{Float64},1},initWaveFun)
+    end
+    #waveFun =  waveFun/norm(waveFun)
+    normWaveFun()
+    global waveFun_init = copy(waveFun)
+
+    #global waveFunInterim = zeros(Complex{Float64}, nStates) #space to hold interim wave function
+
+    #create the initial h and J matrix based on number of qubits
+    global hxStart = readdlm("./hx_init.txt")
+    global hyStart = readdlm("./hy_init.txt")
+    global hzStart = readdlm("./hz_init.txt")
+    #global hxStart = zeros(1,n)
+
+    #read the J and h files and create corresponding matrices
+    #This corresponds to the final influences to the system.
+    global jz = readdlm("./Jz.txt")
+    global jx = readdlm("./Jx.txt")
+    global jy = readdlm("./Jy.txt")
+    global hz = readdlm("./hz.txt")
+    global hx = readdlm("./hx.txt")
+    global hy = readdlm("./hy.txt")
+
+    #print the array, plot the matrix etc
+    println("Initialization done...")
 end
 
 """
@@ -53,8 +68,9 @@ This funtion and doubleSpinOp updates the wavefunction.
 * `delta`: Time since initial configuration.
 * `dt`: duration of time steps.
 """
-function singleSpinOp(n, nStates, delta, dt, waveFun)
-  waveFunInterim = zeros(Complex{Float32}, nStates)
+function singleSpinOp(delta, dt)
+  waveFunInterim = zeros(Complex{Float64}, nStates)
+  #global Hop = zeros(Complex{Float64}, nStates, nStates)
   for k = 0:n-1
     i1=2^k
     hxi = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
@@ -75,7 +91,7 @@ function singleSpinOp(n, nStates, delta, dt, waveFun)
       spinOp21 = 0;
       spinOp22 = 1;
     end
-    Threads.@threads for l=0:2:nStates-1
+    for l=0:2:nStates-1
         i2= l & i1;
         i::Int = l - i2 + i2/i1 + 1;  #The +1 is because indexing in julia is 1-based
         j::Int = i + i1;
@@ -99,12 +115,12 @@ function singleSpinOp(n, nStates, delta, dt, waveFun)
   #display(Hop*waveFun) #/norm(Hop*waveFun))
   #display("*3**")
 
-  #Threads.@threads for i::Int = 1:nStates
-  #  global waveFun[i] = waveFunInterim[i]
-  #end
-  #global waveFun = waveFunInterim
+  for i::Int = 1:nStates
+    global waveFun[i] = waveFunInterim[i]
+  end
 
-  return normWaveFun(waveFunInterim)
+  normWaveFun()
+  #print("\n\n")
 
 
 end
@@ -120,8 +136,8 @@ This funtion and singleSpinOp updates the wavefunction.
 * `delta`: Time since initial configuration step.
 * `dt`: duration of time steps.
 """
-function doubleSpinOp(n, nStates, delta, dt, waveFun)
-  waveFunInterim = zeros(Complex{Float32}, nStates)
+function doubleSpinOp(delta, dt)
+  waveFunInterim = zeros(Complex{Float64}, nStates)
     for k::Int = 0:n-1
       for l::Int = k+1:n-1
         nii::Int=2^k
@@ -148,7 +164,7 @@ function doubleSpinOp(n, nStates, delta, dt, waveFun)
 
         #print(dsOp11,",",dsOp14,",",dsOp22,",",dsOp23,"\n")
 
-        Threads.@threads for m::Int = 0:4:nStates-1
+        for m::Int = 0:4:nStates-1
             n3::Int = m & njj;
             n2::Int = m-n3+(n3+n3)/njj;
             n1::Int = n2 & nii;
@@ -165,12 +181,11 @@ function doubleSpinOp(n, nStates, delta, dt, waveFun)
     end
 
     #move the interim values of wavefunction to existing wavefunction.
-    #Threads.@threads for i::Int = 1:nStates
-    #  global  waveFun[i] = waveFunInterim[i]
-    #end
-    #global  waveFun = waveFunInterim
+    for i::Int = 1:nStates
+      global  waveFun[i] = waveFunInterim[i]
+    end
 
-    return normWaveFun(waveFunInterim)
+    normWaveFun()
 end
 
 """
@@ -179,12 +194,12 @@ Normalize the wave function.
 # Arguments
 * None
 """
-function normWaveFun(waveFun)
+function normWaveFun()
   normWaveFun = norm(waveFun)
   if normWaveFun == 0
     display("norm of wavefunction is zero. Something not right")
   else
-    return waveFun/normWaveFun
+    global waveFun = waveFun/normWaveFun
   end
 end
 
@@ -202,10 +217,10 @@ Following is the sequence of steps
         1b. calculate (Σ Jij σi σj)|Ψ>
  2. Finally calculate energy by mutiplying <Ψ| with H|Ψ> from previous step
 """
-function energySys(n::Int, nStates::Int, delta, wavefun = missing)
+function energySys(delta, wavefun = missing)
 
     # variable to hold H|Ψ>
-    waveFunOp = zeros(Complex{Float32}, nStates)
+    waveFunOp = zeros(Complex{Float64}, nStates)
     if wavefun === missing
       wavefun = waveFun
     end
@@ -278,10 +293,10 @@ end
 
 
 
-function Hamiltonian(n, nStates, delta)
+function Hamiltonian(delta)
 
     # variable to hold H
-    H = zeros(Complex{Float32}, nStates, nStates)
+    H = zeros(Complex{Float64}, nStates, nStates)
     # Calculate (Σ hi σi)
     for k = 0:n-1
       i1 = 2^k
@@ -365,28 +380,32 @@ Publisher, Los Angeles, 2006.`
 julia> qAnneal.anneal(3, 10)
 ```
 """
-function anneal(nQ::Int, t=1.0, dt=0.1, initWaveFun=missing)
+function anneal(nQ, t=1.0, dt=0.1, initWaveFun=missing)
     println("Annealing started...")
 
     #initialize the system
-    nStates::Int = 2^nQ     #total number of states
-    waveFun = init(nStates, initWaveFun)
+    init(nQ, initWaveFun)
 
+    #global energy = zeros(Complex{Float64}, nSteps+1)
+    #nSteps = t/dt      #number of steps
+
+    #loops for each increment in time and calculates the new wavefunction.
+    #for i=0:nSteps
     for time_step = 0:dt:t-dt
         #delta = i/nSteps
         #display(time_step)
         #display(waveFun)
         s = get_s(time_step/t)
         #print(s," ",dt, "\n ")
-        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun)
+        singleSpinOp(s, dt)
         #singleSpinOp(s, dt)
         #singleSpinOp(s, dt)
         #singleSpinOp(s, dt)
         #singleSpinOp(s, dt)
-        waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun)
+        doubleSpinOp(s, dt)
         #doubleSpinOp(s, dt)
         #doubleSpinOp(s, dt)
-        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun)
+        singleSpinOp(s, dt)
         #display("*******************************")
         #energy[i+1]=energySys(delta)
     end
@@ -472,13 +491,12 @@ end
 evolve wavefuntion by changing H from initial to final configuration.
 """
 #test with linear progress of time.
-function diag_evolve(nQ::Int, t=1.0, dt=0.1, initWaveFun=missing)
-  #initialize the system
-  nStates::Int = 2^nQ     #total number of states
-  init(nStates, initWaveFun)
+function diag_evolve(nQ, t=1.0, dt=0.1, initWaveFun=missing)
+
+  init(nQ, initWaveFun)
   steps = t/dt
-  H_init=Hamiltonian(nQ, nStates, 0)
-  H_fin=Hamiltonian(nQ, nStates, 1)
+  H_init=Hamiltonian(0)
+  H_fin=Hamiltonian(1)
   #wavefun=copy(waveFun_init)
   for time_step = 0:dt:t-dt
     s = get_s(time_step/t)
@@ -487,7 +505,7 @@ function diag_evolve(nQ::Int, t=1.0, dt=0.1, initWaveFun=missing)
     #display(time_step)
     #display(wavefun)
     #display(H)
-    waveFun = diag_dt(H, waveFun, dt)
+    global waveFun = diag_dt(H, waveFun, dt)
     #display("*******************************")
   end
   #display("*******************************")
@@ -586,7 +604,7 @@ function qubitsToWavefun(qState)
   for i=1:n
     index += qState[i]*2^(n-i)
   end
-  waveFun = zeros(Complex{Float32}, 2^n)
+  waveFun = zeros(Complex{Float64}, 2^n)
   waveFun[index+1] = 1
   H = Hamiltonian(1)
   print("Energy of these qubit = ", H[index+1,index+1], "\n")
