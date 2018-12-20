@@ -1,4 +1,3 @@
-
 module qAnneal
 
 #import Gadfly for plots
@@ -7,7 +6,7 @@ module qAnneal
 using DelimitedFiles
 using LinearAlgebra
 using Distributed
-@everywhere using SharedArrays
+using SharedArrays
 
 print("Added shared arrays. Number of procs = ",nprocs(),"\n")
 
@@ -27,20 +26,25 @@ const hz = readdlm("./hz.txt")
 const hx = readdlm("./hx.txt")
 const hy = readdlm("./hy.txt")
 
+"""
+Normalizes the wave function.
+"""
+function normWaveFun(waveFun)
+  normWaveFun = norm(waveFun)
+  if normWaveFun == 0
+    display("norm of wavefunction is zero. Something not right")
+  else
+    return waveFun/normWaveFun
+  end
+end
 
 """
-    init(n)
-Initializes the spin system
-# Arguments
-* `n::Integer`: number of cubits of system.
-# What it does
-* Creates the initial wavefunction with all cubits in x-direction
-* creates the initial h-matrix which aligns cubits to x-direction
-* creates global variables for use in this package
+Initializes the spin system.
 """
 function init(nStates::Int, initWaveFun=missing)
 
-  global waveFun = zeros(Complex{Float32}, nStates)  # wave function
+  #waveFun = zeros(Complex{Float32}, nStates)  # wave function
+  waveFun = SharedArray{Complex{Float32},1}(nStates)
   if initWaveFun === missing
     #fill!(waveFun,nStates^(-0.5))    # initializing the wave function to all x
     fill!(waveFun,1)
@@ -53,12 +57,8 @@ function init(nStates::Int, initWaveFun=missing)
 end
 
 """
-    singleSpinOp(delta, dt)
 Single spin operator for time evolution. Based on eqn-68 from the paper.
 This funtion and doubleSpinOp updates the wavefunction.
-# Arguments
-* `delta`: Time since initial configuration.
-* `dt`: duration of time steps.
 """
 function singleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
   #waveFunInterim = zeros(Complex{Float32}, nStates)
@@ -90,42 +90,16 @@ function singleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
 
         waveFunInterim[i] += spinOp11*waveFun[i] + spinOp12*waveFun[j]
         waveFunInterim[j] += spinOp21*waveFun[i] + spinOp22*waveFun[j]
-        #Hop[i,i] += spinOp11
-        #Hop[i,j] += spinOp12
-        #Hop[j,i] += spinOp21
-        #Hop[j,j] += spinOp22
-        #print("===",i,":===",waveFunInterim[i],"===",j,":===",waveFunInterim[j],"\n")
-        #print(spinOp11,",",spinOp12,",",waveFun[i],",",spinOp21,",",spinOp22,",",waveFun[j],"\n")
     end
   end
-  #display(waveFun)
-  #display("*1**")
-  #display(Hop)
-  #display(waveFunInterim) #/norm(waveFunInterim))
-  #display("*2**")
-  #display(Hop*waveFun) #/norm(Hop*waveFun))
-  #display("*3**")
-
-  #Threads.@threads for i::Int = 1:nStates
-  #  global waveFun[i] = waveFunInterim[i]
-  #end
-  #global waveFun = waveFunInterim
-
   return normWaveFun(waveFunInterim)
-
-
 end
 
 
 
 
 """
-    doubleSpinOp(delta, dt)
 Double spin operator for time evolution. Based on eqn-70 from paper.
-This funtion and singleSpinOp updates the wavefunction.
-# Arguments
-* `delta`: Time since initial configuration step.
-* `dt`: duration of time steps.
 """
 function doubleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
   #waveFunInterim = zeros(Complex{Float32}, nStates)
@@ -170,36 +144,14 @@ function doubleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
         end
       end
     end
-
-    #move the interim values of wavefunction to existing wavefunction.
-    #Threads.@threads for i::Int = 1:nStates
-    #  global  waveFun[i] = waveFunInterim[i]
-    #end
-    #global  waveFun = waveFunInterim
-
     return normWaveFun(waveFunInterim)
 end
 
-"""
-    normWaveFun()
-Normalize the wave function.
-# Arguments
-* None
-"""
-function normWaveFun(waveFun)
-  normWaveFun = norm(waveFun)
-  if normWaveFun == 0
-    display("norm of wavefunction is zero. Something not right")
-  else
-    return waveFun/normWaveFun
-  end
-end
+
+
 
 """
-    energySys(n, wavefunction)
 calculates the global energy of the system
-# Arguments
-* `n::Integer`: number of cubits of system.
 # What it does
 We are calculating <Ψ|H|Ψ> where H is the hamiltonian given by
 H = Σ Jij σi σj - Σ hi σi  (equation 20)
@@ -236,9 +188,9 @@ function energySys(n::Int, nStates::Int, delta, wavefun = missing)
       for l::Int = k+1:n-1    # Do not understand why only upper matrix is considered.
         nii::Int=2^k
         njj::Int=2^l
-        jxij=delta*jx[k+1,l+1]
-        jyij=delta*jy[k+1,l+1]
-        jzij=delta*jz[k+1,l+1]
+        jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
+        jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
+        jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
         for m::Int = 0:4:nStates-1
             n3::Int = m & njj;
             n2::Int = m-n3+(n3+n3)/njj;
@@ -263,8 +215,8 @@ function energySys(n::Int, nStates::Int, delta, wavefun = missing)
     return energy
 end
 
-function energyByMatrix(delta=1, H=missing, wavefun=missing)
-  if H === missing && wavefun == missing
+function energyByMatrix(delta::Float64=1; H=missing, waveFun=missing)
+  if H === missing
     energy = conj(waveFun)*Hamiltonian(delta)*waveFun
   else
     energy = conj(wavefun)*H*waveFun
@@ -284,7 +236,9 @@ function blochSphere(theta , phi )
 end
 
 
-
+"""
+Calculates the Hamiltonian of the system.
+"""
 function Hamiltonian(n, nStates, delta)
 
     # variable to hold H
@@ -313,9 +267,9 @@ function Hamiltonian(n, nStates, delta)
       for l::Int = k+1:n-1
         nii::Int=2^k
         njj::Int=2^l
-        jxij=delta*jx[k+1,l+1]
-        jyij=delta*jy[k+1,l+1]
-        jzij=delta*jz[k+1,l+1]
+        jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
+        jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
+        jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
         for m::Int = 0:4:nStates-1
             n3::Int = m & njj;
             n2::Int = m-n3+(n3+n3)/njj;
@@ -324,11 +278,7 @@ function Hamiltonian(n, nStates, delta)
             n1=n0+nii;
             n2=n0+njj;
             n3=n1+njj;
-            # current the code is only of Jz*Jz only
-            #waveFunOp[n0] += jzij*waveFun[n0] + jxij*waveFun[n3] - jyij*waveFun[n3]
-            #waveFunOp[n1] += jzij*waveFun[n1] + jxij*waveFun[n2] + jyij*waveFun[n2]
-            #waveFunOp[n2] += jzij*waveFun[n2] + jxij*waveFun[n1] + jyij*waveFun[n1]
-            #waveFunOp[n3] += jzij*waveFun[n3] + jxij*waveFun[n0] - jyij*waveFun[n0]
+
             H[n0,n0] += jzij
             H[n0,n3] += jxij - jyij
             H[n1,n1] += -jzij
@@ -348,7 +298,7 @@ end
 
 """
 Calculate s from t.
-currently, it is linear. Change this function for more complex evolution.
+Currently, it is linear. Change this function for more complex evolution.
 """
 function get_s(t)
   return t    #s is linear in t,
@@ -387,7 +337,7 @@ function anneal(nQ::Int, t=1.0, dt=0.1, initWaveFun=missing)
         s = get_s(time_step/t)
         #print(s," ",dt, "\n ")
         @sync @distributed for i::Int = 1:nStates
-         z[i] = 0.0+0.0im
+         waveFunInterim[i] = 0.0+0.0im
         end
         waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
         #singleSpinOp(s, dt)
@@ -395,13 +345,13 @@ function anneal(nQ::Int, t=1.0, dt=0.1, initWaveFun=missing)
         #singleSpinOp(s, dt)
         #singleSpinOp(s, dt)
         @sync @distributed for i::Int = 1:nStates
-         z[i] = 0.0+0.0im
+         waveFunInterim[i] = 0.0+0.0im
         end
         waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
         #doubleSpinOp(s, dt)
         #doubleSpinOp(s, dt)
         @sync @distributed for i::Int = 1:nStates
-         z[i] = 0.0+0.0im
+         waveFunInterim[i] = 0.0+0.0im
         end
         waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
         #display("*******************************")
@@ -417,17 +367,7 @@ end
 
 
 
-"""
-qAnneal.init(3)
-qAnneal.anneal(3,1.0,1/19)
 
-using LinearAlgebra
-H_init=qAnneal.Hamiltonian(0)
-H_fin=qAnneal.Hamiltonian(1)
-psi0=ones(8)
-psi0 /= norm(psi0)
-qDiag.diag_evolution(H_init, H_fin, psi0, 1, 0.0005)
-"""
 
 
 h_bar = 1
@@ -492,7 +432,7 @@ evolve wavefuntion by changing H from initial to final configuration.
 function diag_evolve(nQ::Int, t=1.0, dt=0.1, initWaveFun=missing)
   #initialize the system
   nStates::Int = 2^nQ     #total number of states
-  init(nStates, initWaveFun)
+  waveFun = init(nStates, initWaveFun)
   steps = t/dt
   H_init=Hamiltonian(nQ, nStates, 0)
   H_fin=Hamiltonian(nQ, nStates, 1)
@@ -540,7 +480,6 @@ end
 """
 Reverse the order of binary bits from least significant bit representing firt
 bit to most significant bit representing first bit.
-
 for example, in a 3 bit series convert from
 000 001 010 011 100 101 110 111
 to
@@ -593,7 +532,6 @@ end
 """
 wavefunction from a given state of qubit.
 The least significant bit is qubit 1.
-
 Use convertWavefunIndex() if you are following the other convention of most
 significant bit as first qubit.
 """
@@ -616,4 +554,12 @@ H_fin = [0 0 0 1; 0 0 1 0; 0 1 0 0; 1 0 0 0]
 psi1 = [1;0;0;0]
 diag_evolution(H_init, H_fin, psi1, 1, 1/19)
 """
+
+"""
+Sample code on using this module.
+@everywhere include("qAnnealv4.jl")
+@time b=qAnneal.anneal(2,1,0.01)
+qAnneal.diag_evolve(2,1,0.01)
+"""
+
 end
