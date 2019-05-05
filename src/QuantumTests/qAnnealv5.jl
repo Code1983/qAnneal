@@ -46,7 +46,7 @@ function init(nStates::Int, checkpoint::Int, time_start::Float64)
   #waveFun = zeros(Complex{Float32}, nStates)  # wave function
   waveFun = SharedArray{Complex{Float32},1}(nStates)
   fill!(waveFun,1)
-  print(checkpoint, " , ", time_start)
+  print("checkpoint Details (Input_chkpoint_step,time_start): ",checkpoint, " , ", time_start, "\n")
   if checkpoint != 0 && time_start != 0.0
     print("reading checkpointed wave files  \n")
     try
@@ -375,7 +375,7 @@ function anneal(nQ::Int, t=1.0, dt=0.1, checkpoint=0)
         #energy[i+1]=energySys(delta)
         checkpoint_count = checkpoint_count + 1
 
-        print(time_step)
+        #print(time_step)
 
         if checkpoint_count >= checkpoint && checkpoint != 0
           open("checkpoint.txt", "w") do chkpnt_file
@@ -580,6 +580,26 @@ function qubitsToWavefun(qState)
   H = Hamiltonian(1)
   print("Energy of these qubit = ", H[index+1,index+1], "\n")
   return waveFun
+end
+
+"""
+print high probabbility a given state of qubit.
+qState = state Vector
+n = total number of qubitsToWavefun
+top = limits the number of high probability states.
+"""
+function qDisplay(qState, n, top)
+    qindex = sortperm(abs2.(qState),rev=true)
+
+    print("Math way of representing with probability amplitude. \n")
+    for i=1:top
+        print( "(", qState[qindex[i]], ") |",lpad(decToBin(qindex[i]-1),n,'0'),"> \n")
+    end
+    print("\n\n")
+    print("Physics way of representing with probabilities. \n")
+    for i=1:top
+        print( "(", abs2(qState[qindex[i]]), ") |",replace(replace(reverse(lpad(decToBin(qindex[i]-1),n,'0')),'0' => '↑'),'1' => '↓'),"> \n")
+    end
 end
 
 """
