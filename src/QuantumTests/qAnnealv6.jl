@@ -11,20 +11,20 @@ using SharedArrays
 print("Added shared arrays. Number of procs = ",nprocs(),"\n")
 
 #create the initial h and J matrix based on number of qubits
-const jzStart = readdlm("./Jz_init.txt")
-const jxStart = readdlm("./Jx_init.txt")
-const jyStart = readdlm("./Jy_init.txt")
-const hxStart = readdlm("./hx_init.txt")
-const hyStart = readdlm("./hy_init.txt")
-const hzStart = readdlm("./hz_init.txt")
+const jzStart = readdlm("./Jz_init.csv",',',Float32)
+const jxStart = readdlm("./Jx_init.csv",',',Float32)
+const jyStart = readdlm("./Jy_init.csv",',',Float32)
+const hxStart = readdlm("./hx_init.csv",',',Float32)
+const hyStart = readdlm("./hy_init.csv",',',Float32)
+const hzStart = readdlm("./hz_init.csv",',',Float32)
 #read the J and h files and create corresponding matrices
 #This corresponds to the final influences to the system.const jz = readdlm("./Jz.txt")
-const jz = readdlm("./Jz.txt")
-const jx = readdlm("./Jx.txt")
-const jy = readdlm("./Jy.txt")
-const hz = readdlm("./hz.txt")
-const hx = readdlm("./hx.txt")
-const hy = readdlm("./hy.txt")
+const jz = readdlm("./Jz.csv",',',Float32)
+const jx = readdlm("./Jx.csv",',',Float32)
+const jy = readdlm("./Jy.csv",',',Float32)
+const hz = readdlm("./hz.csv",',',Float32)
+const hx = readdlm("./hx.csv",',',Float32)
+const hy = readdlm("./hy.csv",',',Float32)
 
 """
 Normalizes the wave function.
@@ -42,6 +42,7 @@ end
 Initializes the spin system.
 """
 function init(nStates::Int, checkpoint::Int, time_start::Float64)
+
 
   #waveFun = zeros(Complex{Float32}, nStates)  # wave function
   waveFun = SharedArray{Complex{Float32},1}(nStates)
