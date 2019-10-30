@@ -1,4 +1,3 @@
-@everywhere include("qAnnealv6.jl")
 n = 2
 psi = qAnneal.randomState(n)
 psiB = qAnneal.cannonical_state(n,psi,10)
