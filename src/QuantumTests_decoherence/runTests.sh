@@ -1,1 +1,2 @@
+cd .
 julia runtests.jl
