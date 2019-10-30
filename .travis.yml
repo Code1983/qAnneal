@@ -1,0 +1,17 @@
+# Documentation: http://docs.travis-ci.com/user/languages/julia/
+language: julia
+os:
+  - linux
+
+julia:
+  - 1
+  - 1.2
+
+matrix:
+  allow_failures:
+  - julia: nightly
+
+notifications:
+  email: true
+
+script: ./src/QuantumTests_decoherence/runTests.sh
