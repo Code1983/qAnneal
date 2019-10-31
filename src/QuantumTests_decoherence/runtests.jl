@@ -1,9 +1,10 @@
 include("qAnnealv6.jl")
-n = 2
+qAnneal.getConfig()
+n = 4
 psi = qAnneal.randomState(n)
 psiB = qAnneal.cannonical_state(n,psi,10)
-sig = qAnneal.decoherence(psiB, [1,1])
-T,s = qAnneal.anneal(n,2,1,0,psiB)
+sig = qAnneal.decoherence(psiB, [2,2])
+T,s = qAnneal.annealTherm(n,2,1,[2, 2], 0,psiB)
 if (@isdefined T) && (@isdefined a)
   return 0
 end
