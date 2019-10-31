@@ -5,7 +5,9 @@ os:
 
 julia:
   - 1
-  - 1.2
+
+git:
+  depth: false
 
 matrix:
   allow_failures:
