@@ -11,21 +11,6 @@ using Random
 
 print("Added shared arrays. Number of procs = ",nprocs(),"\n")
 
-#create the initial h and J matrix based on number of qubits
-const jzStart = readdlm("./Jz_init.csv",',',Float32)
-const jxStart = readdlm("./Jx_init.csv",',',Float32)
-const jyStart = readdlm("./Jy_init.csv",',',Float32)
-const hxStart = readdlm("./hx_init.csv",',',Float32)
-const hyStart = readdlm("./hy_init.csv",',',Float32)
-const hzStart = readdlm("./hz_init.csv",',',Float32)
-#read the J and h files and create corresponding matrices
-#This corresponds to the final influences to the system.const jz = readdlm("./Jz.txt")
-const jz = readdlm("./Jz.csv",',',Float32)
-const jx = readdlm("./Jx.csv",',',Float32)
-const jy = readdlm("./Jy.csv",',',Float32)
-const hz = readdlm("./hz.csv",',',Float32)
-const hx = readdlm("./hx.csv",',',Float32)
-const hy = readdlm("./hy.csv",',',Float32)
 
 """
 Normalizes the wave function.
@@ -40,10 +25,28 @@ function normWaveFun(waveFun)
 end
 
 """
+Read the J and h files and create corresponding matrices
+"""
+function getConfig()
+  global jzStart = readdlm("./Jz_init.csv",',',Float32)
+  global jxStart = readdlm("./Jx_init.csv",',',Float32)
+  global jyStart = readdlm("./Jy_init.csv",',',Float32)
+  global hxStart = readdlm("./hx_init.csv",',',Float32)
+  global hyStart = readdlm("./hy_init.csv",',',Float32)
+  global hzStart = readdlm("./hz_init.csv",',',Float32)
+
+  global jz = readdlm("./Jz.csv",',',Float32)
+  global jx = readdlm("./Jx.csv",',',Float32)
+  global jy = readdlm("./Jy.csv",',',Float32)
+  global hz = readdlm("./hz.csv",',',Float32)
+  global hx = readdlm("./hx.csv",',',Float32)
+  global hy = readdlm("./hy.csv",',',Float32)
+end
+
+"""
 Initializes the spin system.
 """
 function init(nStates::Int, checkpoint::Int, time_start::Float64, waveFun=missing)
-
 
   if waveFun === missing
     waveFun = SharedArray{Complex{Float32},1}(nStates)
@@ -111,48 +114,47 @@ end
 Double spin operator for time evolution. Based on eqn-70 from paper.
 """
 function doubleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
-  #waveFunInterim = zeros(Complex{Float32}, nStates)
-    ndt = n*(n-1)*dt/2
-    for k::Int = 0:n-1
-      for l::Int = k+1:n-1
-        nii::Int=2^k
-        njj::Int=2^l
-        jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
-        jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
-        jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
+  ndt = n*(n-1)*dt/2
+  for k::Int = 0:n-1
+    for l::Int = k+1:n-1
+      nii::Int=2^k
+      njj::Int=2^l
+      jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
+      jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
+      jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
 
-        # equation 70
-        a = jzij                #somehow /4 is not coded in reference program
-        b = (jxij - jyij)
-        c = (jxij + jyij)
+      # equation 70
+      a = jzij                #somehow /4 is not coded in reference program
+      b = (jxij - jyij)
+      c = (jxij + jyij)
 
-        dsOp11 = (exp(a*ndt*im))*cos(b*ndt)
-        dsOp14 = (im*exp(a*ndt*im))*sin(b*ndt)
-        dsOp22 = (exp(-a*ndt*im))*cos(c*ndt)
-        dsOp23 = (im*exp(-a*ndt*im))*sin(c*ndt)
-        dsOp32 = dsOp23
-        dsOp33 = dsOp22
-        dsOp41 = dsOp14
-        dsOp44 = dsOp11
+      dsOp11 = (exp(a*ndt*im))*cos(b*ndt)
+      dsOp14 = (im*exp(a*ndt*im))*sin(b*ndt)
+      dsOp22 = (exp(-a*ndt*im))*cos(c*ndt)
+      dsOp23 = (im*exp(-a*ndt*im))*sin(c*ndt)
+      dsOp32 = dsOp23
+      dsOp33 = dsOp22
+      dsOp41 = dsOp14
+      dsOp44 = dsOp11
 
-        #print(dsOp11,",",dsOp14,",",dsOp22,",",dsOp23,"\n")
+      #print(dsOp11,",",dsOp14,",",dsOp22,",",dsOp23,"\n")
 
-        @sync @distributed for m::Int = 0:4:nStates-1
-            n3::Int = m & njj;
-            n2::Int = m-n3+(n3+n3)/njj;
-            n1::Int = n2 & nii;
-            n0::Int = n2 - n1+n1/nii +1; # The +1 is because indexing in julia is 1-based
-            n1=n0+nii;
-            n2=n0+njj;
-            n3=n1+njj;
-            waveFunInterim[n0] += dsOp11*waveFun[n0] + dsOp14*waveFun[n3]
-            waveFunInterim[n1] += dsOp22*waveFun[n1] + dsOp23*waveFun[n2]
-            waveFunInterim[n2] += dsOp32*waveFun[n1] + dsOp33*waveFun[n2]
-            waveFunInterim[n3] += dsOp41*waveFun[n0] + dsOp44*waveFun[n3]
-        end
+      @sync @distributed for m::Int = 0:4:nStates-1
+          n3::Int = m & njj;
+          n2::Int = m-n3+(n3+n3)/njj;
+          n1::Int = n2 & nii;
+          n0::Int = n2 - n1+n1/nii +1; # The +1 is because indexing in julia is 1-based
+          n1=n0+nii;
+          n2=n0+njj;
+          n3=n1+njj;
+          waveFunInterim[n0] += dsOp11*waveFun[n0] + dsOp14*waveFun[n3]
+          waveFunInterim[n1] += dsOp22*waveFun[n1] + dsOp23*waveFun[n2]
+          waveFunInterim[n2] += dsOp32*waveFun[n1] + dsOp33*waveFun[n2]
+          waveFunInterim[n3] += dsOp41*waveFun[n0] + dsOp44*waveFun[n3]
       end
     end
-    return normWaveFun(waveFunInterim)
+  end
+  return normWaveFun(waveFunInterim)
 end
 
 
@@ -171,56 +173,56 @@ Following is the sequence of steps
 """
 function energySys(n::Int, nStates::Int, delta, wavefun = missing)
 
-    # variable to hold H|Ψ>
-    waveFunOp = zeros(Complex{Float32}, nStates)
-    if wavefun === missing
-      wavefun = waveFun
+  # variable to hold H|Ψ>
+  waveFunOp = zeros(Complex{Float32}, nStates)
+  if wavefun === missing
+    wavefun = waveFun
+  end
+  # Calculate (Σ hi σi)|Ψ>
+  for k = 0:n-1
+    i1 = 2^k
+    hxi = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
+    hyi = (1-delta)*hyStart[k+1] + delta*hy[k+1]
+    hzi = (1-delta)*hzStart[k+1] + delta*hz[k+1]
+    for l=0:2:nStates-1
+      i2= l & i1;
+      i::Int = l - i2 +i2/i1 +1;   # The +1 is because indexing in julia is 1-based
+      j::Int = i+i1;
+      waveFunOp[i] += (hxi - hyi*im)*wavefun[j] + hzi*wavefun[i]
+      waveFunOp[j] += (hxi + hyi*im)*wavefun[i] - hzi*wavefun[j]
     end
-    # Calculate (Σ hi σi)|Ψ>
-    for k = 0:n-1
-      i1 = 2^k
-      hxi = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
-      hyi = (1-delta)*hyStart[k+1] + delta*hy[k+1]
-      hzi = (1-delta)*hzStart[k+1] + delta*hz[k+1]
-      for l=0:2:nStates-1
-        i2= l & i1;
-        i::Int = l - i2 +i2/i1 +1;   # The +1 is because indexing in julia is 1-based
-        j::Int = i+i1;
-        waveFunOp[i] += (hxi - hyi*im)*wavefun[j] + hzi*wavefun[i]
-        waveFunOp[j] += (hxi + hyi*im)*wavefun[i] - hzi*wavefun[j]
+  end
+
+  # Calculate (Σ Jij σi σj)|Ψ>
+  for k::Int = 0:n-1
+    for l::Int = k+1:n-1    # Do not understand why only upper matrix is considered.
+      nii::Int=2^k
+      njj::Int=2^l
+      jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
+      jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
+      jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
+      for m::Int = 0:4:nStates-1
+          n3::Int = m & njj;
+          n2::Int = m-n3+(n3+n3)/njj;
+          n1::Int = n2 & nii;
+          n0::Int = n2 - n1+n1/nii +1; # The +1 is because indexing in julia is 1-based
+          n1=n0+nii;
+          n2=n0+njj;
+          n3=n1+njj;
+          # current the code is only of Jz*Jz only
+          waveFunOp[n0] += jzij*wavefun[n0] + jxij*wavefun[n3] - jyij*wavefun[n3]
+          waveFunOp[n1] += -jzij*wavefun[n1] + jxij*wavefun[n2] + jyij*wavefun[n2]
+          waveFunOp[n2] += -jzij*wavefun[n2] + jxij*wavefun[n1] + jyij*wavefun[n1]
+          waveFunOp[n3] += jzij*wavefun[n3] + jxij*wavefun[n0] - jyij*wavefun[n0]
       end
     end
-
-    # Calculate (Σ Jij σi σj)|Ψ>
-    for k::Int = 0:n-1
-      for l::Int = k+1:n-1    # Do not understand why only upper matrix is considered.
-        nii::Int=2^k
-        njj::Int=2^l
-        jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
-        jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
-        jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
-        for m::Int = 0:4:nStates-1
-            n3::Int = m & njj;
-            n2::Int = m-n3+(n3+n3)/njj;
-            n1::Int = n2 & nii;
-            n0::Int = n2 - n1+n1/nii +1; # The +1 is because indexing in julia is 1-based
-            n1=n0+nii;
-            n2=n0+njj;
-            n3=n1+njj;
-            # current the code is only of Jz*Jz only
-            waveFunOp[n0] += jzij*wavefun[n0] + jxij*wavefun[n3] - jyij*wavefun[n3]
-            waveFunOp[n1] += -jzij*wavefun[n1] + jxij*wavefun[n2] + jyij*wavefun[n2]
-            waveFunOp[n2] += -jzij*wavefun[n2] + jxij*wavefun[n1] + jyij*wavefun[n1]
-            waveFunOp[n3] += jzij*wavefun[n3] + jxij*wavefun[n0] - jyij*wavefun[n0]
-        end
-      end
-    end
+  end
 
 
-    #find the system energy after the hamiltonina has been operated on
-    #wavefunction. i.e find <Ψ|H|Ψ> given H|Ψ> from above.
-    energy = -sum(conj(wavefun).*waveFunOp)
-    return energy
+  #find the system energy after the hamiltonina has been operated on
+  #wavefunction. i.e find <Ψ|H|Ψ> given H|Ψ> from above.
+  energy = -sum(conj(wavefun).*waveFunOp)
+  return energy
 end
 
 function energyByMatrix(delta::Float64=1; H=missing, waveFun=missing)
@@ -249,58 +251,58 @@ Calculates the Hamiltonian of the system.
 """
 function Hamiltonian(n, nStates, delta)
 
-    # variable to hold H
-    H = zeros(Complex{Float32}, nStates, nStates)
-    # Calculate (Σ hi σi)
-    for k = 0:n-1
-      i1 = 2^k
-      hxi = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
-      hyi = (1-delta)*hyStart[k+1] + delta*hy[k+1]
-      hzi = (1-delta)*hzStart[k+1] + delta*hz[k+1]
-      for l=0:2:nStates-1
-        i2= l & i1;
-        i::Int = l - i2 +i2/i1 +1;   # The +1 is because indexing in julia is 1-based
-        j::Int = i+i1;
-        #waveFunOp[i] += (hxi - hyi*im)*waveFun[j] + hzi*waveFun[i]
-        #waveFunOp[j] += (hxi + hyi*im)*waveFun[i] - hzi*waveFun[j]
-        H[i,j] += hxi - hyi*im
-        H[i,i] += hzi
-        H[j,i] += hxi + hyi*im
-        H[j,j] += - hzi
+  # variable to hold H
+  H = zeros(Complex{Float32}, nStates, nStates)
+  # Calculate (Σ hi σi)
+  for k = 0:n-1
+    i1 = 2^k
+    hxi = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
+    hyi = (1-delta)*hyStart[k+1] + delta*hy[k+1]
+    hzi = (1-delta)*hzStart[k+1] + delta*hz[k+1]
+    for l=0:2:nStates-1
+      i2= l & i1;
+      i::Int = l - i2 +i2/i1 +1;   # The +1 is because indexing in julia is 1-based
+      j::Int = i+i1;
+      #waveFunOp[i] += (hxi - hyi*im)*waveFun[j] + hzi*waveFun[i]
+      #waveFunOp[j] += (hxi + hyi*im)*waveFun[i] - hzi*waveFun[j]
+      H[i,j] += hxi - hyi*im
+      H[i,i] += hzi
+      H[j,i] += hxi + hyi*im
+      H[j,j] += - hzi
+    end
+  end
+
+  # Calculate (Σ Jij σi σj)
+  for k::Int = 0:n-1
+    for l::Int = k+1:n-1
+      nii::Int=2^k
+      njj::Int=2^l
+      jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
+      jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
+      jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
+      for m::Int = 0:4:nStates-1
+          n3::Int = m & njj;
+          n2::Int = m-n3+(n3+n3)/njj;
+          n1::Int = n2 & nii;
+          n0::Int = n2 - n1+n1/nii +1; # The +1 is because indexing in julia is 1-based
+          n1=n0+nii;
+          n2=n0+njj;
+          n3=n1+njj;
+
+          H[n0,n0] += jzij
+          H[n0,n3] += jxij - jyij
+          H[n1,n1] += -jzij
+          H[n1,n2] += jxij + jyij
+          H[n2,n2] += -jzij
+          H[n2,n1] += jxij + jyij
+          H[n3,n3] += jzij
+          H[n3,n0] += jxij - jyij
       end
     end
-
-    # Calculate (Σ Jij σi σj)
-    for k::Int = 0:n-1
-      for l::Int = k+1:n-1
-        nii::Int=2^k
-        njj::Int=2^l
-        jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
-        jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
-        jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
-        for m::Int = 0:4:nStates-1
-            n3::Int = m & njj;
-            n2::Int = m-n3+(n3+n3)/njj;
-            n1::Int = n2 & nii;
-            n0::Int = n2 - n1+n1/nii +1; # The +1 is because indexing in julia is 1-based
-            n1=n0+nii;
-            n2=n0+njj;
-            n3=n1+njj;
-
-            H[n0,n0] += jzij
-            H[n0,n3] += jxij - jyij
-            H[n1,n1] += -jzij
-            H[n1,n2] += jxij + jyij
-            H[n2,n2] += -jzij
-            H[n2,n1] += jxij + jyij
-            H[n3,n3] += jzij
-            H[n3,n0] += jxij - jyij
-        end
-      end
-    end
+  end
 
 
-    return -H
+  return -H
 
 end
 
@@ -331,86 +333,181 @@ julia> qAnneal.anneal(3, 10)
 ```
 """
 function anneal(nQ::Int, t=1.0, dt=0.1, checkpoint=0, initWaveFun=missing)
-    println("Annealing started...")
+  println("Annealing started...")
 
-    #initialize the system
-    nStates::Int = 2^nQ     #total number of states
+  #initialize the system
+  nStates::Int = 2^nQ     #total number of states
 
-    checkpoint_count::Int = 0
-    time_start = 0.0
-    if checkpoint != 0
-      print("Reading checkpoint  \n")
-      try
-        time_start = readdlm("checkpoint.txt")[1] + dt
-      catch
-        print("Warning reading checkpoint  \n")
+  checkpoint_count::Int = 0
+  time_start = 0.0
+  if checkpoint != 0
+    print("Reading checkpoint  \n")
+    try
+      time_start = readdlm("checkpoint.txt")[1] + dt
+    catch
+      print("Warning reading checkpoint  \n")
+    end
+  end
+
+  waveFun = init(nStates, checkpoint, time_start, initWaveFun)
+  waveFunInterim = SharedArray{Complex{Float32},1}(nStates)
+  σ = []
+  T = []
+
+  for time_step = time_start:dt:t-dt
+      #delta = i/nSteps
+      #display(time_step)
+      #display(waveFun)
+      s = get_s(time_step/t)
+      #print(s," ",dt, "\n ")
+      @sync @distributed for i::Int = 1:nStates
+       waveFunInterim[i] = 0.0+0.0im
       end
-    end
+      waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
+      #singleSpinOp(s, dt)
+      #singleSpinOp(s, dt)
+      #singleSpinOp(s, dt)
+      #singleSpinOp(s, dt)
+      @sync @distributed for i::Int = 1:nStates
+       waveFunInterim[i] = 0.0+0.0im
+      end
+      waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
+      #doubleSpinOp(s, dt)
+      #doubleSpinOp(s, dt)
+      @sync @distributed for i::Int = 1:nStates
+       waveFunInterim[i] = 0.0+0.0im
+      end
+      waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
+      #display("*******************************")
+      #energy[i+1]=energySys(delta)
+      checkpoint_count = checkpoint_count + 1
 
-    waveFun = init(nStates, checkpoint, time_start, initWaveFun)
-    waveFunInterim = SharedArray{Complex{Float32},1}(nStates)
-    σ = []
-    T = []
+      #print(time_step)
+      sig = qAnneal.decoherence(waveFun, [4,16])
+      push!(σ,sig)
+      push!(T,time_step)
+      #print(time_step,"\t",sig,"\n")
 
-    for time_step = time_start:dt:t-dt
-        #delta = i/nSteps
-        #display(time_step)
-        #display(waveFun)
-        s = get_s(time_step/t)
-        #print(s," ",dt, "\n ")
-        @sync @distributed for i::Int = 1:nStates
-         waveFunInterim[i] = 0.0+0.0im
+      if checkpoint_count >= checkpoint && checkpoint != 0
+        open("checkpoint.txt", "w") do chkpnt_file
+          print("Checkpointed \n")
+          writedlm(chkpnt_file, time_step)
+        end;
+        open("real_part.txt", "w") do real_part
+          writedlm(real_part, real(waveFun))
         end
-        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
-        #singleSpinOp(s, dt)
-        #singleSpinOp(s, dt)
-        #singleSpinOp(s, dt)
-        #singleSpinOp(s, dt)
-        @sync @distributed for i::Int = 1:nStates
-         waveFunInterim[i] = 0.0+0.0im
+        open("imag_part.txt", "w") do imag_part
+          writedlm(imag_part, imag(waveFun))
         end
-        waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
-        #doubleSpinOp(s, dt)
-        #doubleSpinOp(s, dt)
-        @sync @distributed for i::Int = 1:nStates
-         waveFunInterim[i] = 0.0+0.0im
-        end
-        waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
-        #display("*******************************")
-        #energy[i+1]=energySys(delta)
-        checkpoint_count = checkpoint_count + 1
+        break
+      end
+  end
 
-        #print(time_step)
-        sig = qAnneal.decoherence(waveFun, [4,16])
-        push!(σ,sig)
-        push!(T,time_step)
-        #print(time_step,"\t",sig,"\n")
+  println("Annealing done...")
+  #return waveFun
+  return T,σ
 
-        if checkpoint_count >= checkpoint && checkpoint != 0
-          open("checkpoint.txt", "w") do chkpnt_file
-            print("Checkpointed \n")
-            writedlm(chkpnt_file, time_step)
-          end;
-          open("real_part.txt", "w") do real_part
-            writedlm(real_part, real(waveFun))
-          end
-          open("imag_part.txt", "w") do imag_part
-            writedlm(imag_part, imag(waveFun))
-          end
-          break
-        end
-    end
-
-    println("Annealing done...")
-    #return waveFun
-    return T,σ
-
-    #plot(x=0:nSteps,y=real(energy),Geom.line)
+  #plot(x=0:nSteps,y=real(energy),Geom.line)
 
 end
 
 
+"""
+    AnnealTherm(nQ, nSteps=10)
+Anneals the spin system. This is the evolution of spin system from a known
+initial state to final state. The initial state is all cubits with spin in
+x-direction. The final state is specified in the h and J files.
+The algorithm is based on Sujuki-Trotter product formula described in
+`H. De Raedt and K. Michielsen. Computational Methods for Simulating Quantum
+Computers. In M. Rieth and W. Schommers, editors, Handbook of Theoretical and
+Computational Nanotechnology, volume 3, chapter 1, page 248. American Scientific
+Publisher, Los Angeles, 2006.`
+# Arguments
+* `nQ::Integer`: number of cubits of system.
+* `nSteps`: number to time steps in which we reach the end system configuration.
+# Usage
+```Julia
+julia> qAnneal.anneal(3, 10)
+```
+"""
+function annealTherm(nQ::Int, t=1.0, dt=0.1, sysEnv=[1, 1], checkpoint=0, initWaveFun=missing)
+  println("Annealing started...")
 
+  #initialize the system
+  nStates::Int = 2^nQ     #total number of states
+
+  checkpoint_count::Int = 0
+  time_start = 0.0
+  if checkpoint != 0
+    print("Reading checkpoint  \n")
+    try
+      time_start = readdlm("checkpoint.txt")[1] + dt
+    catch
+      print("Warning reading checkpoint  \n")
+    end
+  end
+
+  waveFun = init(nStates, checkpoint, time_start, initWaveFun)
+  waveFunInterim = SharedArray{Complex{Float32},1}(nStates)
+  σ = []
+  T = []
+
+  for time_step = time_start:dt:t-dt
+      #delta = i/nSteps
+      #display(time_step)
+      #display(waveFun)
+      s = get_s(time_step/t)
+      #print(s," ",dt, "\n ")
+      @sync @distributed for i::Int = 1:nStates
+       waveFunInterim[i] = 0.0+0.0im
+      end
+      waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
+      #singleSpinOp(s, dt)
+      #singleSpinOp(s, dt)
+      #singleSpinOp(s, dt)
+      #singleSpinOp(s, dt)
+      @sync @distributed for i::Int = 1:nStates
+       waveFunInterim[i] = 0.0+0.0im
+      end
+      waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
+      #doubleSpinOp(s, dt)
+      #doubleSpinOp(s, dt)
+      @sync @distributed for i::Int = 1:nStates
+       waveFunInterim[i] = 0.0+0.0im
+      end
+      waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
+      #display("*******************************")
+      #energy[i+1]=energySys(delta)
+      checkpoint_count = checkpoint_count + 1
+
+      #print(time_step)
+      sig = qAnneal.decoherence(waveFun, sysEnv)
+      push!(σ,sig)
+      push!(T,time_step)
+      #print(time_step,"\t",sig,"\n")
+
+      if checkpoint_count >= checkpoint && checkpoint != 0
+        open("checkpoint.txt", "w") do chkpnt_file
+          print("Checkpointed \n")
+          writedlm(chkpnt_file, time_step)
+        end;
+        open("real_part.txt", "w") do real_part
+          writedlm(real_part, real(waveFun))
+        end
+        open("imag_part.txt", "w") do imag_part
+          writedlm(imag_part, imag(waveFun))
+        end
+        break
+      end
+  end
+
+  println("Annealing done...")
+  #return waveFun
+  return T,σ
+
+  #plot(x=0:nSteps,y=real(energy),Geom.line)
+
+end
 
 
 
@@ -599,17 +696,17 @@ n = total number of qubitsToWavefun
 top = limits the number of high probability states.
 """
 function qDisplay(qState, n, top)
-    qindex = sortperm(abs2.(qState),rev=true)
+  qindex = sortperm(abs2.(qState),rev=true)
 
-    print("Math way of representing with probability amplitude. \n")
-    for i=1:top
-        print( "(", qState[qindex[i]], ") |",lpad(decToBin(qindex[i]-1),n,'0'),"> \n")
-    end
-    print("\n\n")
-    print("Physics way of representing with probabilities. \n")
-    for i=1:top
-        print( "(", abs2(qState[qindex[i]]), ") |",replace(replace(reverse(lpad(decToBin(qindex[i]-1),n,'0')),'0' => '↑'),'1' => '↓'),"> \n")
-    end
+  print("Math way of representing with probability amplitude. \n")
+  for i=1:top
+      print( "(", qState[qindex[i]], ") |",lpad(decToBin(qindex[i]-1),n,'0'),"> \n")
+  end
+  print("\n\n")
+  print("Physics way of representing with probabilities. \n")
+  for i=1:top
+      print( "(", abs2(qState[qindex[i]]), ") |",replace(replace(reverse(lpad(decToBin(qindex[i]-1),n,'0')),'0' => '↑'),'1' => '↓'),"> \n")
+  end
 end
 
 """
@@ -619,17 +716,17 @@ n = total number of qubitsToWavefun
 top = limits the number of high probability states.
 """
 function sortEnergy(qE, n, nTopBottom)
-    qindex = sortperm(real(qE),rev=true)
-    sort!(real(qE),rev=true)
-    print("Energy \n Top \n")
-    for i=1:nTopBottom
-        print( "(", qE[qindex[i]], ") |",replace(replace(reverse(lpad(decToBin(qindex[i]-1),n,'0')),'0' => '↑'),'1' => '↓'),"> \n")
-    end
-    #print(".\n.\n.\n")
-    print("Bottom\n")
-    for i=2^n-nTopBottom+1:2^n
-        print( "(", qE[qindex[i]], ") |",replace(replace(reverse(lpad(decToBin(qindex[i]-1),n,'0')),'0' => '↑'),'1' => '↓'),"> \n")
-    end
+  qindex = sortperm(real(qE),rev=true)
+  sort!(real(qE),rev=true)
+  print("Energy \n Top \n")
+  for i=1:nTopBottom
+      print( "(", qE[qindex[i]], ") |",replace(replace(reverse(lpad(decToBin(qindex[i]-1),n,'0')),'0' => '↑'),'1' => '↓'),"> \n")
+  end
+  #print(".\n.\n.\n")
+  print("Bottom\n")
+  for i=2^n-nTopBottom+1:2^n
+      print( "(", qE[qindex[i]], ") |",replace(replace(reverse(lpad(decToBin(qindex[i]-1),n,'0')),'0' => '↑'),'1' => '↓'),"> \n")
+  end
 end
 
 """
@@ -640,57 +737,57 @@ E = DiagOfHamiltonian(22)
 """
 function DiagOfHamiltonian(n)
 
-    nStates = 2^n
-    delta = 1
+  nStates = 2^n
+  delta = 1
 
-    # variable to hold H
-    H_diag = zeros(Complex{Float32}, nStates)
-    # Calculate (Σ hi σi)
-    for k = 0:n-1
-      i1 = 2^k
-      hxi = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
-      hyi = (1-delta)*hyStart[k+1] + delta*hy[k+1]
-      hzi = (1-delta)*hzStart[k+1] + delta*hz[k+1]
-      for l=0:2:nStates-1
-        i2= l & i1;
-        i::Int = l - i2 +i2/i1 +1;   # The +1 is because indexing in julia is 1-based
-        j::Int = i+i1;
-        #waveFunOp[i] += (hxi - hyi*im)*waveFun[j] + hzi*waveFun[i]
-        #waveFunOp[j] += (hxi + hyi*im)*waveFun[i] - hzi*waveFun[j]
+  # variable to hold H
+  H_diag = zeros(Complex{Float32}, nStates)
+  # Calculate (Σ hi σi)
+  for k = 0:n-1
+    i1 = 2^k
+    hxi = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
+    hyi = (1-delta)*hyStart[k+1] + delta*hy[k+1]
+    hzi = (1-delta)*hzStart[k+1] + delta*hz[k+1]
+    for l=0:2:nStates-1
+      i2= l & i1;
+      i::Int = l - i2 +i2/i1 +1;   # The +1 is because indexing in julia is 1-based
+      j::Int = i+i1;
+      #waveFunOp[i] += (hxi - hyi*im)*waveFun[j] + hzi*waveFun[i]
+      #waveFunOp[j] += (hxi + hyi*im)*waveFun[i] - hzi*waveFun[j]
 
-        H_diag[i] += hzi
-        H_diag[j] += - hzi
+      H_diag[i] += hzi
+      H_diag[j] += - hzi
+    end
+  end
+
+  # Calculate (Σ Jij σi σj)
+  for k::Int = 0:n-1
+    for l::Int = k+1:n-1
+      nii::Int=2^k
+      njj::Int=2^l
+      jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
+      jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
+      jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
+      for m::Int = 0:4:nStates-1
+          n3::Int = m & njj;
+          n2::Int = m-n3+(n3+n3)/njj;
+          n1::Int = n2 & nii;
+          n0::Int = n2 - n1+n1/nii +1; # The +1 is because indexing in julia is 1-based
+          n1=n0+nii;
+          n2=n0+njj;
+          n3=n1+njj;
+
+          H_diag[n0] += jzij
+          H_diag[n1] += -jzij
+          H_diag[n2] += -jzij
+          H_diag[n3] += jzij
+
       end
     end
-
-    # Calculate (Σ Jij σi σj)
-    for k::Int = 0:n-1
-      for l::Int = k+1:n-1
-        nii::Int=2^k
-        njj::Int=2^l
-        jxij=(1-delta)*jxStart[k+1,l+1] + delta*jx[k+1,l+1]
-        jyij=(1-delta)*jyStart[k+1,l+1] + delta*jy[k+1,l+1]
-        jzij=(1-delta)*jzStart[k+1,l+1] + delta*jz[k+1,l+1]
-        for m::Int = 0:4:nStates-1
-            n3::Int = m & njj;
-            n2::Int = m-n3+(n3+n3)/njj;
-            n1::Int = n2 & nii;
-            n0::Int = n2 - n1+n1/nii +1; # The +1 is because indexing in julia is 1-based
-            n1=n0+nii;
-            n2=n0+njj;
-            n3=n1+njj;
-
-            H_diag[n0] += jzij
-            H_diag[n1] += -jzij
-            H_diag[n2] += -jzij
-            H_diag[n3] += jzij
-
-        end
-      end
-    end
+  end
 
 
-    return -H_diag
+  return -H_diag
 
 end
 
@@ -700,23 +797,25 @@ calculate decoherence.
 The code handles system that has consecutive system and environment qubits.
 """
 function decoherence(state, dims)
-    sys_qubits = dims[1]
-    env_qubits = dims[2]
+  sys_qubits = dims[1]
+  env_qubits = dims[2]
 
-    sys_dim = 2^sys_qubits
-    env_dim = 2^env_qubits
+  sys_dim = 2^sys_qubits
+  env_dim = 2^env_qubits
 
-    σ_sqr=0
+  σ_sqr=0
 
-    for i = 1:sys_dim-1
-      for j = i+1:sys_dim
-          for p = 1:env_dim
-            σ_sqr=  σ_sqr + abs2(conj(state[i*sys_dim+p])*state[j*sys_dim+p])
-          end
-      end
+  for i = 1:sys_dim-1
+    for j = i+1:sys_dim
+        for p = 1:env_dim
+          #print("i:",i," ,J:",j," ,p:",p," ,calc:",(i-1)*sys_dim+p," ,calc:",(j-1)*sys_dim+p,". \n")
+          #σ_sqr=  σ_sqr + abs2(conj(state[i*sys_dim+p])*state[j*sys_dim+p])
+          σ_sqr=  σ_sqr + abs2(conj(state[(i-1)*sys_dim+p])*state[(j-1)*sys_dim+p])
+        end
     end
+  end
 
-    σ = sqrt(σ_sqr)
+  σ = sqrt(σ_sqr)
 
 end
 
@@ -724,29 +823,29 @@ end
 Calculate thermalization
 """
 function theralization(state, E, dims)
-    sys_start = dims[1]
-    sys_qubits = dims[2]
-    env_start = dims[3]
-    env_qubits = dims[4]
+  sys_start = dims[1]
+  sys_qubits = dims[2]
+  env_start = dims[3]
+  env_qubits = dims[4]
 
-    sys_dim = 2^sys_qubits
-    env_dim = 2^env_qubits
+  sys_dim = 2^sys_qubits
+  env_dim = 2^env_qubits
 
-    for i = 1:sys_dim
-        for p = 1:env_dim
-          ρ_ii[i] =  ρ_ii[i] + conj(state[i*sys_dim+p])*state[i*sys_dim+p]
-        end
-    end
-
-    b_num=0
-    b_den=0
-    for i=1:sys_dim
-      for j = i+1:sys_dim
-        if E[i] != E[j]
-          b_num =  b_num + ln(ρ_ii[i]) - ln(ρ_ii[j])/(E[j]-E[i])
-          b_den = b_den + 1
-        end
+  for i = 1:sys_dim
+      for p = 1:env_dim
+        ρ_ii[i] =  ρ_ii[i] + conj(state[i*sys_dim+p])*state[i*sys_dim+p]
       end
+  end
+
+  b_num=0
+  b_den=0
+  for i=1:sys_dim
+    for j = i+1:sys_dim
+      if E[i] != E[j]
+        b_num =  b_num + ln(ρ_ii[i]) - ln(ρ_ii[j])/(E[j]-E[i])
+        b_den = b_den + 1
+      end
+    end
   end
   b - b_num/b_den
 end
@@ -756,12 +855,12 @@ end
 Calculate Random Initial StackTraces
 """
 function randomState(n ::Int)
-    nState = 2^n
-    r0 = rand(nState)
-    r1 = rand(nState)
-    wf = SharedArray{Complex{Float32}}(sqrt.(-2*log.(r0)).*cos.(2*pi*r1) + im*sqrt.(-2*log.(r0)).*sin.(2*pi*r1))
-    return normWaveFun(wf)
-    #return normWaveFun(d)
+  nState = 2^n
+  r0 = rand(nState)
+  r1 = rand(nState)
+  wf = SharedArray{Complex{Float32}}(sqrt.(-2*log.(r0)).*cos.(2*pi*r1) + im*sqrt.(-2*log.(r0)).*sin.(2*pi*r1))
+  return normWaveFun(wf)
+  #return normWaveFun(d)
 end
 
 
@@ -791,37 +890,37 @@ end
 Generic suzuki-trotter single spin operation.
 """
 function single_spin_gen(n, waveFun, waveFunInterim, T)
-    #waveFunInterim = zeros(Complex{Float32}, nStates)
-      nStates = 2^n
+  #waveFunInterim = zeros(Complex{Float32}, nStates)
+    nStates = 2^n
 
-      for k::Int = 0:n-1
-        i1=2^k
-        hxi::Float32 = hxStart[k+1]/(2*T)
-        hyi::Float32 = hyStart[k+1]/(2*T)
-        hzi::Float32 = hzStart[k+1]/(2*T)
+    for k::Int = 0:n-1
+      i1=2^k
+      hxi::Float32 = hxStart[k+1]/(2*T)
+      hyi::Float32 = hyStart[k+1]/(2*T)
+      hzi::Float32 = hzStart[k+1]/(2*T)
 
-        hi::Float32 = sqrt(hxi*hxi + hyi*hyi + hzi*hzi)
-        if hi !=0
-          spinOp11 = (exp(n*hi/2)*(hi+hzi)-exp(-n*hi/2)*(hzi-hi))/(2*hi)
-          spinOp12 = (exp(n*hi/2)-exp(-n*hi/2))*(hxi - hyi*im)/(2*hi)
-          spinOp21 = (exp(n*hi/2)-exp(-n*hi/2))*(hxi + hyi*im)/(2*hi)
-          spinOp22 = (exp(-n*hi/2)*(hi+hzi)-exp(n*hi/2)*(hzi-hi))/(2*hi)
-        else
-          spinOp11 = 1;
-          spinOp12 = 0;
-          spinOp21 = 0;
-          spinOp22 = 1;
-        end
-        @sync @distributed for l=0:2:nStates-1
-          i2= l & i1;
-          i::Int = l - i2 + i2/i1 + 1;  #The +1 is because indexing in julia is 1-based
-          j::Int = i + i1;
-          waveFunInterim[i] += spinOp11*waveFun[i] + spinOp12*waveFun[j]
-          waveFunInterim[j] += spinOp21*waveFun[i] + spinOp22*waveFun[j]
-        end
+      hi::Float32 = sqrt(hxi*hxi + hyi*hyi + hzi*hzi)
+      if hi !=0
+        spinOp11 = (exp(n*hi/2)*(hi+hzi)-exp(-n*hi/2)*(hzi-hi))/(2*hi)
+        spinOp12 = (exp(n*hi/2)-exp(-n*hi/2))*(hxi - hyi*im)/(2*hi)
+        spinOp21 = (exp(n*hi/2)-exp(-n*hi/2))*(hxi + hyi*im)/(2*hi)
+        spinOp22 = (exp(-n*hi/2)*(hi+hzi)-exp(n*hi/2)*(hzi-hi))/(2*hi)
+      else
+        spinOp11 = 1;
+        spinOp12 = 0;
+        spinOp21 = 0;
+        spinOp22 = 1;
       end
+      @sync @distributed for l=0:2:nStates-1
+        i2= l & i1;
+        i::Int = l - i2 + i2/i1 + 1;  #The +1 is because indexing in julia is 1-based
+        j::Int = i + i1;
+        waveFunInterim[i] += spinOp11*waveFun[i] + spinOp12*waveFun[j]
+        waveFunInterim[j] += spinOp21*waveFun[i] + spinOp22*waveFun[j]
+      end
+    end
 
-    return normWaveFun(waveFunInterim)
+  return normWaveFun(waveFunInterim)
 end
 
 
@@ -829,56 +928,56 @@ end
 Generic suzuki-trotter double spin operation.
 """
 function double_spin_gen(n, waveFun, waveFunInterim, T)
-    #waveFunInterim = zeros(Complex{Float32}, nStates)
-      nStates = 2^n
-      nAdj = n*(n-1)/2
-      #nAdj = n
-      #nAdj = 1
+  #waveFunInterim = zeros(Complex{Float32}, nStates)
+    nStates = 2^n
+    nAdj = n*(n-1)/2
+    #nAdj = n
+    #nAdj = 1
 
-      for k::Int = 0:n-1
-        for l::Int = k+1:n-1
-          nii::Int=2^k
-          njj::Int=2^l
-          x=nAdj*jxStart[k+1,l+1]/(2*T)
-          y=nAdj*jyStart[k+1,l+1]/(2*T)
-          z=nAdj*jzStart[k+1,l+1]/(2*T)
-          #print(x,",",y,",",z,"\n")
+    for k::Int = 0:n-1
+      for l::Int = k+1:n-1
+        nii::Int=2^k
+        njj::Int=2^l
+        x=nAdj*jxStart[k+1,l+1]/(2*T)
+        y=nAdj*jyStart[k+1,l+1]/(2*T)
+        z=nAdj*jzStart[k+1,l+1]/(2*T)
+        #print(x,",",y,",",z,"\n")
 
-          a = exp(-x+y+z)
-          b = exp(x-y+z)
-          c = exp(-x-y-z)
-          d = exp(x+y-z)
-          #print(a,",",b,",",c,",",d,"\n")
+        a = exp(-x+y+z)
+        b = exp(x-y+z)
+        c = exp(-x-y-z)
+        d = exp(x+y-z)
+        #print(a,",",b,",",c,",",d,"\n")
 
-          dsOp11 = (a+b)/2
-          dsOp14 = (b-a)/2
-          dsOp22 = (c+d)/2
-          dsOp23 = (d-c)/2
-          dsOp32 = dsOp23
-          dsOp33 = dsOp22
-          dsOp41 = dsOp14
-          dsOp44 = dsOp11
+        dsOp11 = (a+b)/2
+        dsOp14 = (b-a)/2
+        dsOp22 = (c+d)/2
+        dsOp23 = (d-c)/2
+        dsOp32 = dsOp23
+        dsOp33 = dsOp22
+        dsOp41 = dsOp14
+        dsOp44 = dsOp11
 
-          #print(dsOp11,",",dsOp14,",",dsOp22,",",dsOp23,"\n")
+        #print(dsOp11,",",dsOp14,",",dsOp22,",",dsOp23,"\n")
 
-          @sync @distributed for m::Int = 0:4:nStates-1
-              n3::Int = m & njj;
-              n2::Int = m-n3+(n3+n3)/njj;
-              n1::Int = n2 & nii;
-              n0::Int = n2 - n1+n1/nii +1; # The +1 is because indexing in julia is 1-based
-              n1=n0+nii;
-              n2=n0+njj;
-              n3=n1+njj;
-              waveFunInterim[n0] += dsOp11*waveFun[n0] + dsOp14*waveFun[n3]
-              waveFunInterim[n1] += dsOp22*waveFun[n1] + dsOp23*waveFun[n2]
-              waveFunInterim[n2] += dsOp32*waveFun[n1] + dsOp33*waveFun[n2]
-              waveFunInterim[n3] += dsOp41*waveFun[n0] + dsOp44*waveFun[n3]
-          end
+        @sync @distributed for m::Int = 0:4:nStates-1
+          n3::Int = m & njj;
+          n2::Int = m-n3+(n3+n3)/njj;
+          n1::Int = n2 & nii;
+          n0::Int = n2 - n1+n1/nii +1; # The +1 is because indexing in julia is 1-based
+          n1=n0+nii;
+          n2=n0+njj;
+          n3=n1+njj;
+          waveFunInterim[n0] += dsOp11*waveFun[n0] + dsOp14*waveFun[n3]
+          waveFunInterim[n1] += dsOp22*waveFun[n1] + dsOp23*waveFun[n2]
+          waveFunInterim[n2] += dsOp32*waveFun[n1] + dsOp33*waveFun[n2]
+          waveFunInterim[n3] += dsOp41*waveFun[n0] + dsOp44*waveFun[n3]
         end
       end
-      #print("temp =",T," , ",r," of ",iter,". \n")
+    end
+    #print("temp =",T," , ",r," of ",iter,". \n")
 
-      return normWaveFun(waveFunInterim)
+    return normWaveFun(waveFunInterim)
 end
 
 
@@ -890,34 +989,34 @@ Inputs - n: Number of qubits, waveFun: wave Function, T:tempreture,
 returns canonical thermal state |Ψ(β)>
 """
 function cannonical_state(n, waveFun, T, iter=1)
-    #waveFunInterim = zeros(Complex{Float32}, nStates)
-      nStates = 2^n
-      waveFunInterim = SharedArray{Complex{Float32},1}(2^n)
-      #waveFun = normWaveFun(waveFun)
+  #waveFunInterim = zeros(Complex{Float32}, nStates)
+  nStates = 2^n
+  waveFunInterim = SharedArray{Complex{Float32},1}(2^n)
+  #waveFun = normWaveFun(waveFun)
 
-      nAdj = n*(n-1)/2
-      #nAdj = n
-      #nAdj = 1
+  nAdj = n*(n-1)/2
+  #nAdj = n
+  #nAdj = 1
   for r = 1:iter
 
-      @sync @distributed for i=1:2^n
-          waveFunInterim[i] = 0;
-      end
+    @sync @distributed for i=1:2^n
+      waveFunInterim[i] = 0;
+    end
 
 
-      waveFun = single_spin_gen(n, waveFun, waveFunInterim, T*iter)
+    waveFun = single_spin_gen(n, waveFun, waveFunInterim, T*iter)
 
-      @sync @distributed for i=1:2^n
-          waveFunInterim[i] = 0;
-      end
+    @sync @distributed for i=1:2^n
+      waveFunInterim[i] = 0;
+    end
 
-      waveFun = double_spin_gen(n, waveFun, waveFunInterim, T*iter)
+    waveFun = double_spin_gen(n, waveFun, waveFunInterim, T*iter)
 
-      @sync @distributed for i=1:2^n
-          waveFunInterim[i] = 0;
-      end
+    @sync @distributed for i=1:2^n
+      waveFunInterim[i] = 0;
+    end
 
-      waveFun = single_spin_gen(n, waveFun, waveFunInterim, T*iter)
+    waveFun = single_spin_gen(n, waveFun, waveFunInterim, T*iter)
 
   end
   return waveFun
