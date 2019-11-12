@@ -1,3 +1,4 @@
+#! /bin/sh
 ls
 pwd
 cd src/QuantumTests
