@@ -1,26 +1,23 @@
-# qAnneal
+#calculates quantum decoherence with time
 
-Quantum Annealing in Julia. 
-This has three functions for annealing
-* `anneal(nQ, t=1.0, dt=0.1, initWaveFun=missing)` uses Sujuki-Trotter product-formula algorithm. nQ is number of qubits.
-* `diag_evolve(t, dt)` uses diagonalization for evolution to the exact initial conditions as was used in previous function.
-* `diag_evolution(H_init, H_fin, wavefun, t, dt)` also uses diagonalization but can have any initial and final hamiltonian.
-
-
-# Short overview on usage
-
-Update the h and J files in the folder where code is present. Run qAnnealv1.jl and then 
+The multi-core julia code for quantum annealing and decoherence calculations.
+A sample code to run from Julia repl is present below.
 
 ```
-a=qAnneal.anneal(9,1,0.0005)   # The H* and J* files has the bias and coupling. 
-                               # 9 is the number of qubits. 
-                               # 1.0 is the time of evolution 0.0005 is dt(time-step) of evolution.
-                               # The The fuction returns the final waveFunction. It should be an array of (2^9 = )512 
+using Distributed
+using SharedArrays
 
-b=qAnneal.diag_evolve(1,0.0005) # Evolves the same initial condition as the previous code 
-                                # but uses diagonalization instead of suzuki trotter.
-                                # 1.0 is the time of evolution 0.0005 is dt(time-step) of evolution. 
-                                # Please run anneal() before you run diag_evolve()
+addprocs(1)
+@everywhere include("qAnneal.jl")
+@everywhere qAnneal.getConfig("../config_4_16_decoh")
+n=4    # Number of Qubits.
+
+# The below coide is for Annealing
+b=qAnneal.anneal(n,5,0.1)
+
+# The below code is for calculating decoherence over time.
+psi = qAnneal.randomState(n)
+psiB = qAnneal.cannonical_state(n,psi,10)
+sig = qAnneal.decoherence(psiB, [2,2])
+T,s = qAnneal.annealTherm(n,2,1,[2, 2], 0,psiB)
 ```
-
-The instructions are detailed in the docs folder.
