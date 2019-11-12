@@ -1,3 +1,3 @@
-cd ./src/QuantumTests
+cd src/QuantumTests
 julia runtests.jl
 pwd
