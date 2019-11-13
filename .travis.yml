@@ -16,4 +16,4 @@ matrix:
 notifications:
   email: true
 
-script: ./src/QuantumTests_decoherence/runTests.sh
+script: ./src/QuantumTests/runTests.sh
