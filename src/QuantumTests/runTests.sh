@@ -1,1 +1,2 @@
-julia ./src/QuantumTests/runtests.jl
+cd ./src/QuantumTests
+julia runtests.jl
