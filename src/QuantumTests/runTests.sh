@@ -1,6 +1,1 @@
-#! /bin/sh
-ls
-pwd
-cd src/QuantumTests
-julia runtests.jl
-pwd
+ls && pwd && cd src/QuantumTests && julia runtests.jl && echo hurray
