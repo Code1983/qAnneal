@@ -99,8 +99,8 @@ function singleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
       j::Int = i + i1;
       #print("====",k," ",i," ",j," ",spinOp11," ",spinOp22, "\n")
 
-      waveFunInterim[i] += spinOp11*waveFun[i] + spinOp12*waveFun[j]
-      waveFunInterim[j] += spinOp21*waveFun[i] + spinOp22*waveFun[j]
+      @inbounds waveFunInterim[i] += spinOp11*waveFun[i] + spinOp12*waveFun[j]
+      @inbounds waveFunInterim[j] += spinOp21*waveFun[i] + spinOp22*waveFun[j]
     end
   end
   return normWaveFun(waveFunInterim)
@@ -146,10 +146,10 @@ function doubleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
         n1=n0+nii;
         n2=n0+njj;
         n3=n1+njj;
-        waveFunInterim[n0] += dsOp11*waveFun[n0] + dsOp14*waveFun[n3]
-        waveFunInterim[n1] += dsOp22*waveFun[n1] + dsOp23*waveFun[n2]
-        waveFunInterim[n2] += dsOp32*waveFun[n1] + dsOp33*waveFun[n2]
-        waveFunInterim[n3] += dsOp41*waveFun[n0] + dsOp44*waveFun[n3]
+        @inbounds waveFunInterim[n0] += dsOp11*waveFun[n0] + dsOp14*waveFun[n3]
+        @inbounds waveFunInterim[n1] += dsOp22*waveFun[n1] + dsOp23*waveFun[n2]
+        @inbounds waveFunInterim[n2] += dsOp32*waveFun[n1] + dsOp33*waveFun[n2]
+        @inbounds waveFunInterim[n3] += dsOp41*waveFun[n0] + dsOp44*waveFun[n3]
       end
     end
   end
@@ -209,10 +209,10 @@ function energySys(n::Int, nStates::Int, delta, wavefun = missing)
         n2=n0+njj;
         n3=n1+njj;
         # current the code is only of Jz*Jz only
-        waveFunOp[n0] += jzij*wavefun[n0] + jxij*wavefun[n3] - jyij*wavefun[n3]
-        waveFunOp[n1] += -jzij*wavefun[n1] + jxij*wavefun[n2] + jyij*wavefun[n2]
-        waveFunOp[n2] += -jzij*wavefun[n2] + jxij*wavefun[n1] + jyij*wavefun[n1]
-        waveFunOp[n3] += jzij*wavefun[n3] + jxij*wavefun[n0] - jyij*wavefun[n0]
+        @inbounds waveFunOp[n0] += jzij*wavefun[n0] + jxij*wavefun[n3] - jyij*wavefun[n3]
+        @inbounds waveFunOp[n1] += -jzij*wavefun[n1] + jxij*wavefun[n2] + jyij*wavefun[n2]
+        @inbounds waveFunOp[n2] += -jzij*wavefun[n2] + jxij*wavefun[n1] + jyij*wavefun[n1]
+        @inbounds waveFunOp[n3] += jzij*wavefun[n3] + jxij*wavefun[n0] - jyij*wavefun[n0]
       end
     end
   end
@@ -366,13 +366,13 @@ function anneal(nQ::Int, t=1.0, dt=0.1, checkpoint=0, initWaveFun=missing)
     #singleSpinOp(s, dt)
     #singleSpinOp(s, dt)
     @sync @distributed for i::Int = 1:nStates
-     waveFunInterim[i] = 0.0+0.0im
+     @inbounds waveFunInterim[i] = 0.0+0.0im
     end
     waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
     #doubleSpinOp(s, dt)
     #doubleSpinOp(s, dt)
     @sync @distributed for i::Int = 1:nStates
-     waveFunInterim[i] = 0.0+0.0im
+     @inbounds waveFunInterim[i] = 0.0+0.0im
     end
     waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
     #display("*******************************")
@@ -460,13 +460,13 @@ function annealTherm(nQ::Int, t=1.0, dt=0.1, sysEnv=[1, 1], checkpoint=0, initWa
     #singleSpinOp(s, dt)
     #singleSpinOp(s, dt)
     @sync @distributed for i::Int = 1:nStates
-     waveFunInterim[i] = 0.0+0.0im
+     @inbounds waveFunInterim[i] = 0.0+0.0im
     end
     waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
     #doubleSpinOp(s, dt)
     #doubleSpinOp(s, dt)
     @sync @distributed for i::Int = 1:nStates
-     waveFunInterim[i] = 0.0+0.0im
+     @inbounds waveFunInterim[i] = 0.0+0.0im
     end
     waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
     #display("*******************************")
@@ -911,8 +911,8 @@ function single_spin_gen(n, waveFun, waveFunInterim, T)
         i2= l & i1;
         i::Int = l - i2 + i2/i1 + 1;  #The +1 is because indexing in julia is 1-based
         j::Int = i + i1;
-        waveFunInterim[i] += spinOp11*waveFun[i] + spinOp12*waveFun[j]
-        waveFunInterim[j] += spinOp21*waveFun[i] + spinOp22*waveFun[j]
+        @inbounds waveFunInterim[i] += spinOp11*waveFun[i] + spinOp12*waveFun[j]
+        @inbounds waveFunInterim[j] += spinOp21*waveFun[i] + spinOp22*waveFun[j]
       end
     end
 
@@ -971,10 +971,10 @@ function double_spin_gen(n, waveFun, waveFunInterim, T)
           n1=n0+nii;
           n2=n0+njj;
           n3=n1+njj;
-          waveFunInterim[n0] += dsOp11*waveFun[n0] + dsOp14*waveFun[n3]
-          waveFunInterim[n1] += dsOp22*waveFun[n1] + dsOp23*waveFun[n2]
-          waveFunInterim[n2] += dsOp32*waveFun[n1] + dsOp33*waveFun[n2]
-          waveFunInterim[n3] += dsOp41*waveFun[n0] + dsOp44*waveFun[n3]
+          @inbounds waveFunInterim[n0] += dsOp11*waveFun[n0] + dsOp14*waveFun[n3]
+          @inbounds waveFunInterim[n1] += dsOp22*waveFun[n1] + dsOp23*waveFun[n2]
+          @inbounds waveFunInterim[n2] += dsOp32*waveFun[n1] + dsOp33*waveFun[n2]
+          @inbounds waveFunInterim[n3] += dsOp41*waveFun[n0] + dsOp44*waveFun[n3]
           #display(norm(waveFunInterim))
           #global tData = waveFunInterim
         end
@@ -1012,6 +1012,37 @@ function cannonical_state(n, waveFun, T, iter=1)
   return waveFun
 end
 
+
+"""
+calculate the complete wave funtion given environment wavefunction and system qubits.
+sys_state is entered as binary value of each qubits.
+The code handles system that has consecutive system and environment qubits.
+example:
+partialState(Int(0b11), [2,2], env_state)
+"""
+
+function partialState(sys_state, dims, env_state)
+
+  sys_qubits = dims[1]
+  env_qubits = dims[2]
+  
+  sys_wavefunlen = 2^sys_qubits
+  env_wavefunlen = 2^env_qubits
+  total_wavefunlen = 2^(sys_qubits+env_qubits)
+
+  if length(env_state) != env_wavefunlen
+    println("Number of qubits in enviroment not correct")
+  end
+
+  if sys_state >= sys_wavefunlen
+    println("Number of qubits in system not correct")
+  end
+
+  waveFunInterim = SharedArray{Complex{Float32},1}(total_wavefunlen)
+  waveFunInterim[sys_state*env_wavefunlen+1:(sys_state+1)*env_wavefunlen] = env_state
+  return waveFunInterim
+
+end
 
 """
 H_init = [1 0 0 0;0 -1 0 0; 0 0 -1 0; 0 0 0 1]
