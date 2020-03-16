@@ -73,6 +73,10 @@ This funtion and doubleSpinOp updates the wavefunction.
 """
 function singleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
   #waveFunInterim = zeros(Complex{Float32}, nStates)
+  @sync @distributed for i=1:nStates
+    waveFunInterim[i] = 0;
+  end
+
   for k = 0:n-1
     i1=2^k
     hxi::Float32 = (1-delta)*hxStart[k+1] + delta*hx[k+1]   #The +1 is because indexing in julia is 1-based
@@ -114,6 +118,10 @@ Double spin operator for time evolution. Based on eqn-70 from paper.
 """
 function doubleSpinOp(n, nStates, delta, dt, waveFun, waveFunInterim)
   ndt = n*(n-1)*dt/2
+  @sync @distributed for i=1:nStates
+    waveFunInterim[i] = 0;
+  end
+
   for k::Int = 0:n-1
     for l::Int = k+1:n-1
       nii::Int=2^k
@@ -357,23 +365,9 @@ function anneal(nQ::Int, t=1.0, dt=0.1, checkpoint=0, initWaveFun=missing)
     #display(waveFun)
     s = get_s(time_step/t)
     #print(s," ",dt, "\n ")
-    @sync @distributed for i::Int = 1:nStates
-     waveFunInterim[i] = 0.0+0.0im
-    end
+
     waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
-    #singleSpinOp(s, dt)
-    #singleSpinOp(s, dt)
-    #singleSpinOp(s, dt)
-    #singleSpinOp(s, dt)
-    @sync @distributed for i::Int = 1:nStates
-     @inbounds waveFunInterim[i] = 0.0+0.0im
-    end
     waveFun = doubleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
-    #doubleSpinOp(s, dt)
-    #doubleSpinOp(s, dt)
-    @sync @distributed for i::Int = 1:nStates
-     @inbounds waveFunInterim[i] = 0.0+0.0im
-    end
     waveFun = singleSpinOp(nQ, nStates, s, dt, waveFun, waveFunInterim)
     #display("*******************************")
     #energy[i+1]=energySys(delta)
@@ -442,8 +436,23 @@ function annealTherm(nQ::Int, t=1.0, dt=0.1, sysEnv=[1, 1], checkpoint=0, initWa
 
   waveFun = init(nStates, checkpoint, time_start, initWaveFun)
   waveFunInterim = SharedArray{Complex{Float32},1}(nStates)
+
+  """
+  values for decoherence.
+  system hamiltonian is diagonalized and is used to transform the wavefunction.
+  Nothing to do with environment hamiltonian
+  """
   σ = []
   T = []
+  Hs = Hamiltonian(sysEnv[1], 2^sysEnv[1], 0)
+  eig = eigen(Hs)
+  v = eig.vectors
+
+  # Store the initial decoherence values.
+  psi = qAnneal.WavefunInDiagHs(waveFun, v, sysEnv, waveFunInterim)
+  sig = qAnneal.decoherence(psi, sysEnv)
+  push!(σ,sig)
+  push!(T,0.0)
 
   for time_step = time_start:dt:t-dt
     #delta = i/nSteps
@@ -474,9 +483,13 @@ function annealTherm(nQ::Int, t=1.0, dt=0.1, sysEnv=[1, 1], checkpoint=0, initWa
     checkpoint_count = checkpoint_count + 1
 
     #print(time_step)
-    sig = qAnneal.decoherence(waveFun, sysEnv)
+    """
+    Transform the wavefunction to the basis that diagonalizes the system hamiltonian
+    """
+    psi = qAnneal.WavefunInDiagHs(waveFun, v, sysEnv, waveFunInterim)
+    sig = qAnneal.decoherence(psi, sysEnv)
     push!(σ,sig)
-    push!(T,time_step)
+    push!(T,time_step + dt)
     #print(time_step,"\t",sig,"\n")
 
     if checkpoint_count >= checkpoint && checkpoint != 0
@@ -566,7 +579,8 @@ evolve wavefuntion by changing H from initial to final configuration.
 function diag_evolve(nQ::Int, t=1.0, dt=0.1, initWaveFun=missing)
   #initialize the system
   nStates::Int = 2^nQ     #total number of states
-  waveFun = init(nStates, initWaveFun)
+  #waveFun = init(nStates, initWaveFun)
+  waveFun = init(nStates, 0, 0.0, initWaveFun)
   steps = t/dt
   H_init=Hamiltonian(nQ, nStates, 0)
   H_fin=Hamiltonian(nQ, nStates, 1)
@@ -589,6 +603,8 @@ end
 
 """
 convert a decimal number to a binary string.
+qAnneal.decToBin(6)
+"110"
 """
 function decToBin(x::Int)
 
@@ -882,6 +898,7 @@ end
 
 """
 Generic suzuki-trotter single spin operation.
+Needed for calculating cannonical_state.
 """
 function single_spin_gen(n, waveFun, waveFunInterim, T)
     nStates = 2^n
@@ -922,6 +939,7 @@ end
 
 """
 Generic suzuki-trotter double spin operation.
+Needed for calculating cannonical_state.
 """
 function double_spin_gen(n, waveFun, waveFunInterim, T)
   #waveFunInterim = zeros(Complex{Float32}, nStates)
@@ -1025,10 +1043,12 @@ function partialState(sys_state, dims, env_state)
 
   sys_qubits = dims[1]
   env_qubits = dims[2]
-  
+
   sys_wavefunlen = 2^sys_qubits
   env_wavefunlen = 2^env_qubits
   total_wavefunlen = 2^(sys_qubits+env_qubits)
+
+  sys_q = reverseBinDec(sys_state,sys_qubits)
 
   if length(env_state) != env_wavefunlen
     println("Number of qubits in enviroment not correct")
@@ -1039,9 +1059,42 @@ function partialState(sys_state, dims, env_state)
   end
 
   waveFunInterim = SharedArray{Complex{Float32},1}(total_wavefunlen)
-  waveFunInterim[sys_state*env_wavefunlen+1:(sys_state+1)*env_wavefunlen] = env_state
+  #waveFunInterim[sys_state*env_wavefunlen+1:(sys_state+1)*env_wavefunlen] = env_state
+
+  @sync @distributed for env_q=0:env_wavefunlen-1
+    waveFunInterim[env_q*sys_wavefunlen+sys_q+1]=env_state[env_q+1]
+  end
+
   return waveFunInterim
 
+end
+
+
+"""
+Find basis that diagonalizes system hamiltonian. Change the wavefuncction to the new basis.
+waveFun - wavefunction of the system
+T - Transformation matrix. This is same as the eigenvector matrix of hamiltonian
+dims - system and environment qubit count fed as an array
+waveFunInterim - scratchpad of wavefunction. Define once and use in multiple functions. This is to reduce memory footprint
+"""
+function WavefunInDiagHs(waveFun, T, dims, waveFunInterim)
+  sys_qubits = dims[1]
+  env_qubits = dims[2]
+
+  sys_dim = 2^sys_qubits
+  env_dim = 2^env_qubits
+  nStates = sys_dim*env_dim
+
+  @sync @distributed for i=1:nStates
+    waveFunInterim[i] = 0;
+  end
+
+
+
+  @sync @distributed for i=1:env_dim
+    waveFunInterim[((i-1)*sys_dim)+1:i*sys_dim]=T*waveFun[((i-1)*sys_dim)+1:i*sys_dim]
+  end
+  return waveFunInterim
 end
 
 """
@@ -1061,7 +1114,16 @@ using LinearAlgebra
 using Distributed
 using SharedArrays
 addprocs(1)
-@everywhere include("qAnnealv5.jl")
+@everywhere include("qAnneal.jl")
+
+qAnneal.getConfig("../config_4_16_decoh")
+n = 4
+psi = qAnneal.randomState(n)
+psiB = qAnneal.cannonical_state(n,psi,10)
+sig = qAnneal.decoherence(psiB, [2,2])
+T,s = qAnneal.annealTherm(n,2,1,[2, 2], 0,psiB)
+
+qAnneal.partialState(Int(0b110), [3,3], psi)
 """
 
 end
