@@ -820,7 +820,8 @@ function decoherence(state, dims)
         #print("i:",i," ,J:",j," ,p:",p," ,calc:",(i-1)*sys_dim+p," ,calc:",(j-1)*sys_dim+p,". \n")
         #σ_sqr=  σ_sqr + abs2(conj(state[i*sys_dim+p])*state[j*sys_dim+p])
         #σ_sqr=  σ_sqr + abs2(conj(state[(i-1)*env_dim+p])*state[(j-1)*env_dim+p])
-        σ_sqr=  σ_sqr + abs2(conj(state[(i-1)*env_dim+p])*state[(j-1)*env_dim+p])
+        #σ_sqr=  σ_sqr + abs2(conj(state[(i-1)*env_dim+p])*state[(j-1)*env_dim+p])
+        σ_sqr=  σ_sqr + abs2(conj(state[(p-1)*sys_dim+i])*state[(p-1)*sys_dim+j])
       end
     end
   end
@@ -1048,7 +1049,7 @@ function partialState(sys_state, dims, env_state)
   env_wavefunlen = 2^env_qubits
   total_wavefunlen = 2^(sys_qubits+env_qubits)
 
-  sys_q = reverseBinDec(sys_state,sys_qubits)
+  #sys_q = reverseBinDec(sys_state,sys_qubits)
 
   if length(env_state) != env_wavefunlen
     println("Number of qubits in enviroment not correct")
@@ -1062,7 +1063,7 @@ function partialState(sys_state, dims, env_state)
   #waveFunInterim[sys_state*env_wavefunlen+1:(sys_state+1)*env_wavefunlen] = env_state
 
   @sync @distributed for env_q=0:env_wavefunlen-1
-    waveFunInterim[env_q*sys_wavefunlen+sys_q+1]=env_state[env_q+1]
+    waveFunInterim[env_q*sys_wavefunlen+sys_state+1]=env_state[env_q+1]
   end
 
   return waveFunInterim
