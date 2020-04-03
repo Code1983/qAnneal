@@ -1098,6 +1098,31 @@ function WavefunInDiagHs(waveFun, T, dims, waveFunInterim)
   return waveFunInterim
 end
 
+
+
+"""
+Saves t (time) and s (decoherence) to the filename.
+This can be used to store any two variables but used mostly for t and s.
+t and s can be used for later plot
+"""
+function Savets(t, s, filename)
+  open(filename, "w") do fil
+    writedlm(fil, [t,s])
+  end
+end
+
+
+"""
+Loads t (time) and s (decoherence) to the filename.
+This can be used to load any two variables but used mostly for t and s.
+t and s can be recovered plot.
+
+  t1,s1 = qAnneal.Loadts("test.txt")
+"""
+function Loadts(filename)
+  content=readdlm(filename)
+  return content[1,:], content[2,:]
+end
 """
 H_init = [1 0 0 0;0 -1 0 0; 0 0 -1 0; 0 0 0 1]
 H_fin = [0 0 0 1; 0 0 1 0; 0 1 0 0; 1 0 0 0]
@@ -1111,20 +1136,58 @@ Sample code on using this module.
 @time b=qAnneal.anneal(2,1,0.01)
 qAnneal.diag_evolve(2,1,0.01)
 
+
+
+creation of random J matrices
+j =(rand(16,16).-0.5)./10
+
+for i::Int = 1:16
+  for k::Int = 1:i
+    j[i,k]=0
+  end
+end
+
+
+open("j0.1y.csv", "w") do fil
+  writedlm(fil,j,',')
+end
+
+
+h =(rand(16).-0.5)./1000
+
+open("h0.001y.csv", "w") do fil
+  writedlm(fil,h,',')
+end
+
+
+
+
+
+
+using Plots
 using LinearAlgebra
 using Distributed
 using SharedArrays
+
 addprocs(1)
 @everywhere include("qAnneal.jl")
 
-qAnneal.getConfig("../config_4_16_decoh")
-n = 4
+qAnneal.getConfig("../config_4_12_decoh")
+n = 16
 psi = qAnneal.randomState(n)
 psiB = qAnneal.cannonical_state(n,psi,10)
-sig = qAnneal.decoherence(psiB, [2,2])
-T,s = qAnneal.annealTherm(n,2,1,[2, 2], 0,psiB)
+T,s = qAnneal.annealTherm(n,100,0.1,[4, 12], 0,psiB)
 
-qAnneal.partialState(Int(0b110), [3,3], psi)
+qAnneal.Savets(T,s,"test.txt")
+
+env = qAnneal.randomState(12)
+envc = qAnneal.cannonical_state(12,env,10)
+PsiC = qAnneal.partialState(Int(0b1010), [4,12], envc)
+T2,s2 = qAnneal.annealTherm(n,100,0.1,[4, 12], 0,PsiC)
+
+plot!(T,s,label="CanonicalX")
+xlabel!("time")
+ylabel!("decoherence")
 """
 
 end
